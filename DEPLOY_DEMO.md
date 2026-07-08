@@ -63,8 +63,16 @@ Never expose `SHOPIFY_API_SECRET`, `AI_API_KEY`, `DEEPSEEK_API_KEY`, or
 
 The public static demo persists rule settings and automatic inspection history
 through the server-side CloudBase HTTP function. The browser keeps a generated
-`demoId`, then calls the server endpoint to read and write documents in the
-`shopify_ai_demo_state` collection.
+`demoId`, then calls the server endpoint to read and write normalized documents.
+
+The demo uses the generated `demoId` as a temporary `shopId`, then writes into
+these collections:
+
+- `shopify_ai_shops`
+- `shopify_ai_rules`
+- `shopify_ai_inspections`
+- `shopify_ai_alerts`
+- `shopify_ai_reports`
 
 This keeps the model key and database access server-side while still allowing
 the public link to behave like a real product demo. If this becomes a real

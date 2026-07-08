@@ -5,7 +5,13 @@ const cloudbase = require("@cloudbase/node-sdk");
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-chat";
-const COLLECTION = "shopify_ai_demo_state";
+const COLLECTIONS = {
+  shops: "shopify_ai_shops",
+  rules: "shopify_ai_rules",
+  inspections: "shopify_ai_inspections",
+  alerts: "shopify_ai_alerts",
+  reports: "shopify_ai_reports",
+};
 const PORT = Number(process.env.PORT || 9000);
 
 const cloudApp = cloudbase.init({
@@ -14,6 +20,10 @@ const cloudApp = cloudbase.init({
 const db = cloudApp.database();
 
 async function handlePayload(payload) {
+  if (payload.action) {
+    return handleStateAction(payload);
+  }
+
   const apiKey =
     process.env.AI_API_KEY ||
     process.env.DEEPSEEK_API_KEY ||
@@ -24,10 +34,6 @@ async function handlePayload(payload) {
       statusCode: 500,
       body: { error: "AI key is not configured on the server." },
     };
-  }
-
-  if (payload.action) {
-    return handleStateAction(payload);
   }
 
   if (payload.inspection) {
@@ -46,14 +52,21 @@ async function handlePayload(payload) {
 
 async function handleStateAction(payload) {
   const action = payload.action || "getState";
-  const demoId = normalizeDemoId(payload.demoId);
+  const shopId = normalizeId(payload.shopId || payload.demoId);
+  const user = {
+    userId: normalizeId(payload.userId || `${shopId}-owner`),
+    role: normalizeRole(payload.role || "owner"),
+  };
 
   if (action === "getState") {
-    const state = await getState(demoId);
+    const state = await getState(shopId);
     return {
       statusCode: 200,
       body: {
-        demoId,
+        demoId: shopId,
+        shopId,
+        user,
+        collections: COLLECTIONS,
         state,
         persisted: Boolean(state),
       },
@@ -62,11 +75,14 @@ async function handleStateAction(payload) {
 
   if (action === "saveState") {
     const state = sanitizeState(payload.state || {});
-    const savedState = await saveState(demoId, state);
+    const savedState = await saveState(shopId, state, user);
     return {
       statusCode: 200,
       body: {
-        demoId,
+        demoId: shopId,
+        shopId,
+        user,
+        collections: COLLECTIONS,
         state: savedState,
         persisted: true,
       },
@@ -74,11 +90,14 @@ async function handleStateAction(payload) {
   }
 
   if (action === "resetState") {
-    await deleteState(demoId);
+    await deleteState(shopId);
     return {
       statusCode: 200,
       body: {
-        demoId,
+        demoId: shopId,
+        shopId,
+        user,
+        collections: COLLECTIONS,
         state: null,
         persisted: false,
       },
@@ -337,59 +356,156 @@ function normalizeReport(value, inspection) {
   };
 }
 
-async function getState(demoId) {
-  const doc = await getDocument(demoId);
+async function getState(shopId) {
+  await ensureCollections();
 
-  if (!doc) {
+  const [shop, rulesDoc, inspections, alerts, reports] = await Promise.all([
+    getDocument(COLLECTIONS.shops, shopId),
+    getDocument(COLLECTIONS.rules, rulesDocId(shopId)),
+    getShopDocuments(COLLECTIONS.inspections, shopId),
+    getShopDocuments(COLLECTIONS.alerts, shopId),
+    getShopDocuments(COLLECTIONS.reports, shopId),
+  ]);
+
+  if (!shop && !rulesDoc && inspections.length === 0) {
     return null;
   }
 
+  const alertsByInspection = groupBy(alerts, "inspectionId");
+  const reportsByInspection = groupBy(reports, "inspectionId");
+  const inspectionHistory = inspections
+    .sort((a, b) => new Date(b.runAt || 0) - new Date(a.runAt || 0))
+    .map((inspection) => {
+      const inspectionAlerts = (alertsByInspection[inspection.inspectionId] || []).sort((a, b) => a.position - b.position);
+      const report = reportsByInspection[inspection.inspectionId]?.[0] || null;
+
+      return {
+        id: inspection.inspectionId,
+        dayKey: inspection.dayKey,
+        runAt: inspection.runAt,
+        source: inspection.source,
+        summary: inspection.summary || {},
+        trend: inspection.trend || {},
+        alerts: inspectionAlerts.map(stripSystemFields),
+        archive: inspection.archive || [],
+        missingData: inspection.missingData || [],
+        aiReport: report ? stripSystemFields(report.report || report) : null,
+      };
+    });
+
   return {
-    rules: doc.rules || null,
-    inspectionHistory: Array.isArray(doc.inspectionHistory) ? doc.inspectionHistory : [],
-    updatedAt: doc.updatedAt || null,
-    version: doc.version || 1,
+    shop: shop ? stripSystemFields(shop) : null,
+    rules: rulesDoc?.rules || null,
+    inspectionHistory,
+    updatedAt: maxDate([shop?.updatedAt, rulesDoc?.updatedAt, ...inspections.map((item) => item.updatedAt)]),
+    version: 2,
   };
 }
 
-async function saveState(demoId, state) {
-  await ensureCollection();
+async function saveState(shopId, state, user) {
+  await ensureCollections();
 
-  const savedState = {
-    demoId,
+  const now = new Date().toISOString();
+  const shop = {
+    shopId,
+    shopDomain: `${shopId}.demo.myshopify.com`,
+    platform: "shopify",
+    status: "demo",
+    plan: "public-demo",
+    installedByUserId: user.userId,
+    installedByRole: user.role,
+    permissions: ["rules:write", "inspections:write", "alerts:read", "ai_reports:read"],
+    updatedAt: now,
+    version: 2,
+  };
+  const rulesDoc = {
+    shopId,
+    ruleSetId: "default",
     rules: state.rules,
-    inspectionHistory: state.inspectionHistory,
-    updatedAt: new Date().toISOString(),
-    version: 1,
+    updatedByUserId: user.userId,
+    updatedByRole: user.role,
+    updatedAt: now,
+    version: 2,
   };
 
-  await db.collection(COLLECTION).doc(demoId).set(savedState);
+  await Promise.all([
+    db.collection(COLLECTIONS.shops).doc(shopId).set(shop),
+    db.collection(COLLECTIONS.rules).doc(rulesDocId(shopId)).set(rulesDoc),
+    removeShopDocuments(COLLECTIONS.inspections, shopId),
+    removeShopDocuments(COLLECTIONS.alerts, shopId),
+    removeShopDocuments(COLLECTIONS.reports, shopId),
+  ]);
 
-  return {
-    rules: savedState.rules,
-    inspectionHistory: savedState.inspectionHistory,
-    updatedAt: savedState.updatedAt,
-    version: savedState.version,
-  };
+  for (const [index, inspection] of state.inspectionHistory.entries()) {
+    await saveInspectionTree(shopId, inspection, index, user, now);
+  }
+
+  return getState(shopId);
 }
 
-async function deleteState(demoId) {
-  await ensureCollection();
+async function saveInspectionTree(shopId, inspection, index, user, now) {
+  const inspectionId = normalizeDocId(inspection.id || `inspection-${index}`);
+  const inspectionDocId = scopedDocId(shopId, inspectionId);
+  const report = inspection.aiReport || null;
+  const alerts = Array.isArray(inspection.alerts) ? inspection.alerts : [];
 
-  try {
-    await db.collection(COLLECTION).doc(demoId).remove();
-  } catch (error) {
-    if (!isNotFoundError(error)) {
-      throw error;
-    }
+  await db.collection(COLLECTIONS.inspections).doc(inspectionDocId).set({
+    shopId,
+    inspectionId,
+    dayKey: inspection.dayKey,
+    runAt: inspection.runAt,
+    source: inspection.source,
+    summary: inspection.summary || {},
+    trend: inspection.trend || {},
+    archive: inspection.archive || [],
+    missingData: inspection.missingData || [],
+    createdByUserId: user.userId,
+    createdByRole: user.role,
+    updatedAt: now,
+    version: 2,
+  });
+
+  await Promise.all(
+    alerts.map((alert, alertIndex) =>
+      db.collection(COLLECTIONS.alerts).doc(alertDocId(shopId, inspectionId, alertIndex, alert.title)).set({
+        ...alert,
+        shopId,
+        inspectionId,
+        alertId: normalizeDocId(alert.id || alert.title || `alert-${alertIndex}`),
+        position: alertIndex,
+        updatedAt: now,
+        version: 2,
+      }),
+    ),
+  );
+
+  if (report) {
+    await db.collection(COLLECTIONS.reports).doc(reportDocId(shopId, inspectionId)).set({
+      shopId,
+      inspectionId,
+      report,
+      generatedBy: "ai",
+      updatedAt: now,
+      version: 2,
+    });
   }
 }
 
-async function getDocument(demoId) {
-  await ensureCollection();
+async function deleteState(shopId) {
+  await ensureCollections();
 
+  await Promise.all([
+    removeShopDocuments(COLLECTIONS.inspections, shopId),
+    removeShopDocuments(COLLECTIONS.alerts, shopId),
+    removeShopDocuments(COLLECTIONS.reports, shopId),
+    removeDocument(COLLECTIONS.rules, rulesDocId(shopId)),
+    removeDocument(COLLECTIONS.shops, shopId),
+  ]);
+}
+
+async function getDocument(collectionName, docId) {
   try {
-    const result = await db.collection(COLLECTION).doc(demoId).get();
+    const result = await db.collection(collectionName).doc(docId).get();
     const data = result?.data;
 
     if (Array.isArray(data)) {
@@ -406,9 +522,37 @@ async function getDocument(demoId) {
   }
 }
 
-async function ensureCollection() {
+async function getShopDocuments(collectionName, shopId) {
+  const result = await db.collection(collectionName).where({ shopId }).limit(100).get();
+  const data = result?.data;
+  return Array.isArray(data) ? data : [];
+}
+
+async function removeShopDocuments(collectionName, shopId) {
+  const docs = await getShopDocuments(collectionName, shopId);
+
+  await Promise.all(docs.map((doc) => removeDocument(collectionName, doc._id)));
+}
+
+async function removeDocument(collectionName, docId) {
+  if (!docId) return;
+
   try {
-    await db.createCollection(COLLECTION);
+    await db.collection(collectionName).doc(docId).remove();
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+}
+
+async function ensureCollections() {
+  await Promise.all(Object.values(COLLECTIONS).map(ensureCollection));
+}
+
+async function ensureCollection(collectionName) {
+  try {
+    await db.createCollection(collectionName);
   } catch (error) {
     if (!isAlreadyExistsError(error)) {
       throw error;
@@ -450,10 +594,86 @@ function sanitizeInspection(item) {
   };
 }
 
-function normalizeDemoId(value) {
+function normalizeId(value) {
   const text = String(value || "public-demo").toLowerCase();
   const normalized = text.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 48);
   return normalized || "public-demo";
+}
+
+function normalizeRole(value) {
+  const role = String(value || "owner").toLowerCase();
+  return ["owner", "admin", "analyst", "viewer"].includes(role) ? role : "viewer";
+}
+
+function normalizeDocId(value) {
+  return normalizeId(value).slice(0, 64);
+}
+
+function scopedDocId(shopId, id) {
+  return `${normalizeDocId(shopId)}_${normalizeDocId(id)}`.slice(0, 120);
+}
+
+function rulesDocId(shopId) {
+  return scopedDocId(shopId, "rules-default");
+}
+
+function alertDocId(shopId, inspectionId, index, title) {
+  return scopedDocId(shopId, `${inspectionId}_alert_${index}_${title || "untitled"}`);
+}
+
+function reportDocId(shopId, inspectionId) {
+  return scopedDocId(shopId, `${inspectionId}_ai-report`);
+}
+
+function groupBy(items, key) {
+  return items.reduce((accumulator, item) => {
+    const groupKey = item[key];
+
+    if (!groupKey) {
+      return accumulator;
+    }
+
+    accumulator[groupKey] ||= [];
+    accumulator[groupKey].push(item);
+    return accumulator;
+  }, {});
+}
+
+function stripSystemFields(value) {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const hiddenFields = new Set([
+    "_id",
+    "shopId",
+    "inspectionId",
+    "alertId",
+    "ruleSetId",
+    "position",
+    "version",
+    "updatedAt",
+    "createdByUserId",
+    "createdByRole",
+    "updatedByUserId",
+    "updatedByRole",
+    "generatedBy",
+  ]);
+
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !hiddenFields.has(key)));
+}
+
+function maxDate(values) {
+  const timestamps = values
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+
+  if (!timestamps.length) {
+    return null;
+  }
+
+  return new Date(Math.max(...timestamps)).toISOString();
 }
 
 function clampNumber(value, min, max, fallback) {
