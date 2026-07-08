@@ -757,6 +757,8 @@
         maximumFractionDigits: 0,
       });
       const AI_ENDPOINT = "https://tt1-d2gfab46g22e748ed.service.tcloudbase.com/shopify-ai-explain";
+      const DATA_ENDPOINT = AI_ENDPOINT;
+      const demoIdKey = "shopify-ai-demo-id";
       const inspectionHistoryKey = "shopify-ai-demo-inspection-history";
 
       const defaultRules = {
@@ -828,10 +830,17 @@
         return { name, daysAgo, product, amount, financial, fulfillment };
       });
 
+      let demoId = getDemoId();
       let rules = JSON.parse(localStorage.getItem("shopify-ai-demo-rules") || "null") || defaultRules;
       let inspectionHistory = loadInspectionHistory();
       let latestInspection = inspectionHistory[0] || null;
       let inspectionAiLoadingId = null;
+      let cloudState = {
+        status: "loading",
+        message: "CloudBase 数据库连接中",
+        savedAt: null,
+      };
+      let cloudSaveTimer = null;
 
       function currentWindow() {
         return orders.filter((order) => order.daysAgo <= 6);
@@ -945,6 +954,130 @@
 
       function saveInspectionHistory() {
         localStorage.setItem(inspectionHistoryKey, JSON.stringify(inspectionHistory.slice(0, 12)));
+        queueCloudStateSave("inspection");
+      }
+
+      function saveRulesLocal() {
+        localStorage.setItem("shopify-ai-demo-rules", JSON.stringify(rules));
+      }
+
+      function getDemoId() {
+        const existing = localStorage.getItem(demoIdKey);
+
+        if (existing) {
+          return existing;
+        }
+
+        const generated =
+          "demo-" +
+          Math.random().toString(36).slice(2, 10) +
+          "-" +
+          Date.now().toString(36).slice(-6);
+        localStorage.setItem(demoIdKey, generated);
+        return generated;
+      }
+
+      async function bootState() {
+        render();
+        await loadCloudState();
+        initializeInspection();
+      }
+
+      async function loadCloudState() {
+        cloudState = {
+          status: "loading",
+          message: "CloudBase 数据库连接中",
+          savedAt: null,
+        };
+        renderInspection();
+
+        try {
+          const payload = await requestDataApi({
+            action: "getState",
+            demoId,
+          });
+
+          if (payload.state) {
+            rules = { ...defaultRules, ...(payload.state.rules || {}) };
+            inspectionHistory = Array.isArray(payload.state.inspectionHistory) ? payload.state.inspectionHistory : [];
+            latestInspection = inspectionHistory[0] || null;
+            saveRulesLocal();
+            localStorage.setItem(inspectionHistoryKey, JSON.stringify(inspectionHistory.slice(0, 12)));
+          }
+
+          cloudState = {
+            status: payload.persisted ? "loaded" : "connected",
+            message: payload.persisted ? "云数据库已加载" : "云数据库已连接，等待首次保存",
+            savedAt: payload.state?.updatedAt || null,
+          };
+        } catch {
+          cloudState = {
+            status: "offline",
+            message: "云数据库读取失败，已切换本地缓存",
+            savedAt: null,
+          };
+        }
+
+        render();
+      }
+
+      function queueCloudStateSave(reason) {
+        if (cloudSaveTimer) {
+          clearTimeout(cloudSaveTimer);
+        }
+
+        cloudSaveTimer = setTimeout(() => {
+          saveCloudStateNow(reason);
+        }, 350);
+      }
+
+      async function saveCloudStateNow(reason) {
+        cloudState = {
+          ...cloudState,
+          status: "saving",
+          message: `云数据库保存中：${reason}`,
+        };
+        renderInspection();
+
+        try {
+          const payload = await requestDataApi({
+            action: "saveState",
+            demoId,
+            state: {
+              rules,
+              inspectionHistory: inspectionHistory.slice(0, 12),
+            },
+          });
+
+          cloudState = {
+            status: "saved",
+            message: "云数据库已保存",
+            savedAt: payload.state?.updatedAt || new Date().toISOString(),
+          };
+        } catch {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: "云数据库保存失败，已保留本地缓存",
+          };
+        }
+
+        renderInspection();
+      }
+
+      async function requestDataApi(payload) {
+        const response = await fetch(DATA_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (!response.ok || data.error) {
+          throw new Error(data.error || "Cloud database request failed.");
+        }
+
+        return data;
       }
 
       function seedInspectionHistory() {
@@ -1375,6 +1508,8 @@
             <span class="tag ${summary.criticalCount ? "hot" : "good"}">严重 ${summary.criticalCount}</span>
             <span class="tag warn">预警 ${summary.warningCount}</span>
             <span class="tag">证据置信度 ${summary.confidence}</span>
+            <span class="tag ${cloudStateTagTone()}">${escapeHtml(cloudState.message)}</span>
+            <span class="tag">Demo ID ${escapeHtml(demoId.slice(-8))}</span>
           </div>
         `;
 
@@ -1480,6 +1615,18 @@
         if (score >= 75) return "高";
         if (score >= 55) return "中";
         return "低";
+      }
+
+      function cloudStateTagTone() {
+        if (["loaded", "saved", "connected"].includes(cloudState.status)) {
+          return "good";
+        }
+
+        if (cloudState.status === "offline") {
+          return "warn";
+        }
+
+        return "";
       }
 
       function unique(values) {
@@ -1645,7 +1792,8 @@
       }
 
       document.getElementById("saveRules").addEventListener("click", () => {
-        localStorage.setItem("shopify-ai-demo-rules", JSON.stringify(rules));
+        saveRulesLocal();
+        queueCloudStateSave("rules");
         render();
         runInspection({ source: "rule-update", withAi: true });
       });
@@ -1653,6 +1801,8 @@
       document.getElementById("resetDemo").addEventListener("click", () => {
         localStorage.removeItem("shopify-ai-demo-rules");
         rules = { ...defaultRules };
+        saveRulesLocal();
+        queueCloudStateSave("rules-reset");
         render();
         runInspection({ source: "manual", withAi: true });
       });
@@ -1668,8 +1818,7 @@
         runInspection({ source: "manual", withAi: true });
       });
 
-      render();
-      initializeInspection();
+      bootState();
     </script>
   </body>
 </html>

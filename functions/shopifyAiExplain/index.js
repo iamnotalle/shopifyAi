@@ -1,10 +1,17 @@
 /* global process */
 
 const http = require("http");
+const cloudbase = require("@cloudbase/node-sdk");
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-chat";
+const COLLECTION = "shopify_ai_demo_state";
 const PORT = Number(process.env.PORT || 9000);
+
+const cloudApp = cloudbase.init({
+  env: process.env.TCB_ENV || process.env.SCF_NAMESPACE || cloudbase.SYMBOL_CURRENT_ENV,
+});
+const db = cloudApp.database();
 
 async function handlePayload(payload) {
   const apiKey =
@@ -19,6 +26,10 @@ async function handlePayload(payload) {
     };
   }
 
+  if (payload.action) {
+    return handleStateAction(payload);
+  }
+
   if (payload.inspection) {
     return summarizeInspection(apiKey, payload.inspection);
   }
@@ -30,6 +41,53 @@ async function handlePayload(payload) {
   return {
     statusCode: 400,
     body: { error: "Either alert or inspection is required." },
+  };
+}
+
+async function handleStateAction(payload) {
+  const action = payload.action || "getState";
+  const demoId = normalizeDemoId(payload.demoId);
+
+  if (action === "getState") {
+    const state = await getState(demoId);
+    return {
+      statusCode: 200,
+      body: {
+        demoId,
+        state,
+        persisted: Boolean(state),
+      },
+    };
+  }
+
+  if (action === "saveState") {
+    const state = sanitizeState(payload.state || {});
+    const savedState = await saveState(demoId, state);
+    return {
+      statusCode: 200,
+      body: {
+        demoId,
+        state: savedState,
+        persisted: true,
+      },
+    };
+  }
+
+  if (action === "resetState") {
+    await deleteState(demoId);
+    return {
+      statusCode: 200,
+      body: {
+        demoId,
+        state: null,
+        persisted: false,
+      },
+    };
+  }
+
+  return {
+    statusCode: 400,
+    body: { error: "Unsupported action." },
   };
 }
 
@@ -277,6 +335,149 @@ function normalizeReport(value, inspection) {
       : fallbackActions,
     topPriority: String(value.topPriority || topAlert?.title || "继续观察"),
   };
+}
+
+async function getState(demoId) {
+  const doc = await getDocument(demoId);
+
+  if (!doc) {
+    return null;
+  }
+
+  return {
+    rules: doc.rules || null,
+    inspectionHistory: Array.isArray(doc.inspectionHistory) ? doc.inspectionHistory : [],
+    updatedAt: doc.updatedAt || null,
+    version: doc.version || 1,
+  };
+}
+
+async function saveState(demoId, state) {
+  await ensureCollection();
+
+  const savedState = {
+    demoId,
+    rules: state.rules,
+    inspectionHistory: state.inspectionHistory,
+    updatedAt: new Date().toISOString(),
+    version: 1,
+  };
+
+  await db.collection(COLLECTION).doc(demoId).set(savedState);
+
+  return {
+    rules: savedState.rules,
+    inspectionHistory: savedState.inspectionHistory,
+    updatedAt: savedState.updatedAt,
+    version: savedState.version,
+  };
+}
+
+async function deleteState(demoId) {
+  await ensureCollection();
+
+  try {
+    await db.collection(COLLECTION).doc(demoId).remove();
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+}
+
+async function getDocument(demoId) {
+  await ensureCollection();
+
+  try {
+    const result = await db.collection(COLLECTION).doc(demoId).get();
+    const data = result?.data;
+
+    if (Array.isArray(data)) {
+      return data[0] || null;
+    }
+
+    return data || null;
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function ensureCollection() {
+  try {
+    await db.createCollection(COLLECTION);
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) {
+      throw error;
+    }
+  }
+}
+
+function sanitizeState(state) {
+  return {
+    rules: sanitizeRules(state.rules || {}),
+    inspectionHistory: Array.isArray(state.inspectionHistory)
+      ? state.inspectionHistory.slice(0, 20).map(sanitizeInspection)
+      : [],
+  };
+}
+
+function sanitizeRules(rules) {
+  return {
+    salesDrop: clampNumber(rules.salesDrop, 10, 80, 35),
+    inventoryDays: clampNumber(rules.inventoryDays, 1, 30, 5),
+    highValueOrder: clampNumber(rules.highValueOrder, 50, 1000, 450),
+    fulfillmentHours: clampNumber(rules.fulfillmentHours, 6, 96, 36),
+    refundRate: clampNumber(rules.refundRate, 2, 40, 12),
+  };
+}
+
+function sanitizeInspection(item) {
+  return {
+    id: asText(item.id, 80),
+    dayKey: asText(item.dayKey, 16),
+    runAt: asText(item.runAt, 40),
+    source: asText(item.source, 32),
+    summary: item.summary || {},
+    trend: item.trend || {},
+    alerts: Array.isArray(item.alerts) ? item.alerts.slice(0, 12) : [],
+    archive: Array.isArray(item.archive) ? item.archive.slice(0, 12) : [],
+    missingData: Array.isArray(item.missingData) ? item.missingData.slice(0, 12).map(String) : [],
+    aiReport: item.aiReport || null,
+  };
+}
+
+function normalizeDemoId(value) {
+  const text = String(value || "public-demo").toLowerCase();
+  const normalized = text.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 48);
+  return normalized || "public-demo";
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, number));
+}
+
+function asText(value, maxLength) {
+  return String(value || "").slice(0, maxLength);
+}
+
+function isAlreadyExistsError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+  return text.includes("already") || text.includes("exist") || text.includes("collection existed");
+}
+
+function isNotFoundError(error) {
+  const text = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+  return text.includes("not found") || text.includes("not exist") || text.includes("does not exist");
 }
 
 function cloudResponse(statusCode, data) {
