@@ -185,6 +185,12 @@
         grid-template-columns: minmax(0, 1.2fr) minmax(22rem, 0.8fr);
       }
 
+      .grid3 {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
       .card,
       .panel {
         background: var(--panel);
@@ -325,6 +331,13 @@
         color: var(--ink);
       }
 
+      .buttonRow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: flex-end;
+      }
+
       .chart {
         align-items: end;
         display: grid;
@@ -434,6 +447,92 @@
         padding: 0.75rem;
       }
 
+      .inspectionStack {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .inspectionNote {
+        background: #f7f8fb;
+        border: 1px solid var(--line);
+        border-radius: 0.7rem;
+        display: grid;
+        gap: 0.35rem;
+        padding: 0.85rem;
+      }
+
+      .inspectionNote strong,
+      .insightBlock strong {
+        color: var(--ink);
+      }
+
+      .inspectionNote p,
+      .insightBlock p,
+      .historyItem p {
+        color: #4f5a72;
+        line-height: 1.55;
+        margin: 0;
+      }
+
+      .insightBlock {
+        border-top: 1px solid #edf0f5;
+        display: grid;
+        gap: 0.55rem;
+        padding-top: 0.9rem;
+      }
+
+      .insightList {
+        display: grid;
+        gap: 0.65rem;
+      }
+
+      .historyItem {
+        border-bottom: 1px solid #edf0f5;
+        display: grid;
+        gap: 0.35rem;
+        padding: 0 0 0.7rem;
+      }
+
+      .historyItem:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .tagRow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+
+      .tag {
+        background: var(--soft);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #4e5a72;
+        display: inline-flex;
+        font-size: 0.75rem;
+        font-weight: 800;
+        padding: 0.28rem 0.5rem;
+      }
+
+      .tag.hot {
+        background: #fff0ee;
+        border-color: #ffd7d2;
+        color: var(--red);
+      }
+
+      .tag.warn {
+        background: #fff3df;
+        border-color: #f6d39b;
+        color: var(--amber);
+      }
+
+      .tag.good {
+        background: #e8f6ef;
+        border-color: #bfe8d4;
+        color: var(--green);
+      }
+
       .hidden {
         display: none;
       }
@@ -449,6 +548,7 @@
         }
 
         .grid4,
+        .grid3,
         .grid2 {
           grid-template-columns: 1fr 1fr;
         }
@@ -461,9 +561,14 @@
 
         .hero,
         .grid4,
+        .grid3,
         .grid2,
         .ruleRow {
           grid-template-columns: 1fr;
+        }
+
+        .buttonRow {
+          justify-content: flex-start;
         }
 
         .chart {
@@ -490,6 +595,10 @@
           <strong>运营工作台</strong>
           <small>今日重点、异常预警、趋势归因</small>
         </a>
+        <a class="sideLink" href="#inspection">
+          <strong>自动巡检</strong>
+          <small>日报、趋势、归档、告警历史</small>
+        </a>
         <a class="sideLink" href="#rules">
           <strong>规则配置</strong>
           <small>阈值会保存到当前浏览器</small>
@@ -511,6 +620,43 @@
         </section>
 
         <section class="grid4" id="metrics"></section>
+
+        <section class="panel" id="inspection">
+          <div class="panelHeader">
+            <div>
+              <span>Auto Patrol</span>
+              <strong>自动巡检日报</strong>
+            </div>
+            <div class="buttonRow">
+              <button class="btn secondary" id="clearInspectionHistory">清空历史</button>
+              <button class="btn" id="runInspection">立即巡检</button>
+            </div>
+          </div>
+          <div class="panelBody inspectionStack">
+            <div class="inspectionNote" id="inspectionStatus"></div>
+            <div class="grid3" id="inspectionMetrics"></div>
+            <div class="grid2">
+              <div class="insightBlock">
+                <strong>AI 日报</strong>
+                <div id="inspectionReport"></div>
+              </div>
+              <div class="insightBlock">
+                <strong>多天趋势判断</strong>
+                <div id="inspectionTrend"></div>
+              </div>
+            </div>
+            <div class="grid2">
+              <div class="insightBlock">
+                <strong>同类异常归档</strong>
+                <div class="insightList" id="inspectionArchive"></div>
+              </div>
+              <div class="insightBlock">
+                <strong>告警历史</strong>
+                <div class="insightList" id="inspectionHistory"></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <section class="grid2">
           <div class="panel">
@@ -610,6 +756,8 @@
         currency: "USD",
         maximumFractionDigits: 0,
       });
+      const AI_ENDPOINT = "https://tt1-d2gfab46g22e748ed.service.tcloudbase.com/shopify-ai-explain";
+      const inspectionHistoryKey = "shopify-ai-demo-inspection-history";
 
       const defaultRules = {
         salesDrop: 35,
@@ -681,6 +829,9 @@
       });
 
       let rules = JSON.parse(localStorage.getItem("shopify-ai-demo-rules") || "null") || defaultRules;
+      let inspectionHistory = loadInspectionHistory();
+      let latestInspection = inspectionHistory[0] || null;
+      let inspectionAiLoadingId = null;
 
       function currentWindow() {
         return orders.filter((order) => order.daysAgo <= 6);
@@ -783,6 +934,567 @@
         return alerts;
       }
 
+      function loadInspectionHistory() {
+        try {
+          const value = JSON.parse(localStorage.getItem(inspectionHistoryKey) || "[]");
+          return Array.isArray(value) ? value.sort((a, b) => new Date(b.runAt) - new Date(a.runAt)) : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function saveInspectionHistory() {
+        localStorage.setItem(inspectionHistoryKey, JSON.stringify(inspectionHistory.slice(0, 12)));
+      }
+
+      function seedInspectionHistory() {
+        return [
+          createSeedInspection(3, [
+            ["库存风险", "info", 52, "旧问题持续", "Air 10 库存低于 8 件，ReGlow Bundle 库存 2。"],
+            ["退款率超过阈值", "warning", 61, "新问题", "退款相关订单占比 13%，接近阈值。"],
+          ]),
+          createSeedInspection(1, [
+            ["库存风险", "info", 68, "旧问题恶化", "ReGlow Bundle 库存 0，Air 10 库存 4。"],
+            ["订单量下滑", "warning", 58, "新问题", "最近 7 天订单量较前周期下降 31%。"],
+            ["退款率超过阈值", "warning", 63, "旧问题持续", "退款相关订单占比 14%。"],
+          ]),
+        ];
+      }
+
+      function createSeedInspection(daysAgo, alertRows) {
+        const runAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+        const alerts = alertRows.map(([title, severity, score, changeType, evidence]) => ({
+          id: title,
+          title,
+          severity,
+          score,
+          changeType,
+          evidence,
+          message: evidence,
+          action: "复核该类异常的订单、商品和履约数据。",
+          confidence: score >= 65 ? "中" : "低",
+          confidenceScore: score,
+          missingData: missingDataForAlert({ title }).slice(0, 3),
+        }));
+
+        return {
+          id: `seed-${dateKey(runAt)}-${daysAgo}`,
+          dayKey: dateKey(runAt),
+          runAt: runAt.toISOString(),
+          source: "seed",
+          summary: summarizeAlertRecords(alerts),
+          trend: {
+            judgement: daysAgo === 1 ? "销售和库存风险连续出现，库存问题有恶化迹象。" : "历史基线巡检，用于演示同类异常归档。",
+            revenueChange: -31,
+            orderChange: -24,
+            aovChange: -9,
+            last3VsPrev3: -18,
+          },
+          alerts,
+          archive: [],
+          missingData: unique(alerts.flatMap((alert) => alert.missingData)).slice(0, 6),
+          aiReport: {
+            dailySummary: "历史巡检样本：库存风险和退款风险曾经出现，用于和今天的异常做同类对比。",
+            trendJudgement: daysAgo === 1 ? "库存风险从低库存演变为缺货，趋势偏恶化。" : "基线样本，没有明显恶化结论。",
+            archiveNotes: "同类异常会按标题归档，后续巡检会显示出现次数和风险分变化。",
+            changeAssessment: "作为历史样本，不参与今天的新旧判断。",
+            confidence: "中",
+            missingData: ["真实广告花费", "结账转化率", "补货 ETA"],
+            recommendedActions: ["保留为演示历史", "继续观察同类异常是否重复出现"],
+            topPriority: "库存风险",
+          },
+        };
+      }
+
+      function summarizeAlertRecords(alerts) {
+        const criticalCount = alerts.filter((alert) => alert.severity === "critical").length;
+        const warningCount = alerts.filter((alert) => alert.severity === "warning").length;
+        const newCount = alerts.filter((alert) => alert.changeType === "新问题").length;
+        const worseCount = alerts.filter((alert) => alert.changeType === "旧问题恶化").length;
+        const persistentCount = alerts.filter((alert) => alert.changeType === "旧问题持续").length;
+        const confidenceScore = average(alerts.map((alert) => alert.confidenceScore || 45));
+
+        return {
+          alertCount: alerts.length,
+          criticalCount,
+          warningCount,
+          newCount,
+          worseCount,
+          persistentCount,
+          confidence: confidenceFromScore(confidenceScore),
+          confidenceScore,
+        };
+      }
+
+      function createInspectionSnapshot(source = "auto") {
+        const current = stats(currentWindow());
+        const previous = stats(previousWindow());
+        const alerts = buildAlerts().map((alert) => enrichAlert(alert));
+        const trend = buildInspectionTrend();
+        const summary = {
+          ...summarizeAlertRecords(alerts),
+          revenue: current.revenue,
+          previousRevenue: previous.revenue,
+          orders: current.orders,
+          previousOrders: previous.orders,
+          aov: current.aov,
+          previousAov: previous.aov,
+          revenueChange: pct(current.revenue, previous.revenue),
+          orderChange: pct(current.orders, previous.orders),
+          aovChange: pct(current.aov, previous.aov),
+        };
+        const missingData = unique(alerts.flatMap((alert) => alert.missingData)).slice(0, 8);
+
+        return {
+          id: `inspection-${Date.now()}`,
+          dayKey: dateKey(new Date()),
+          runAt: new Date().toISOString(),
+          source,
+          summary,
+          trend,
+          alerts,
+          archive: buildInspectionArchive(alerts),
+          missingData,
+          aiReport: null,
+        };
+      }
+
+      function enrichAlert(alert) {
+        const score = calculateRiskScore(alert);
+        const previous = findPreviousAlert(alert.title);
+        let changeType = "新问题";
+
+        if (previous) {
+          if (score >= previous.score + 8) {
+            changeType = "旧问题恶化";
+          } else if (score <= previous.score - 8) {
+            changeType = "旧问题缓和";
+          } else {
+            changeType = "旧问题持续";
+          }
+        }
+
+        const confidence = confidenceForAlert(alert);
+
+        return {
+          ...alert,
+          id: alert.title,
+          score,
+          previousScore: previous?.score ?? null,
+          changeType,
+          lastSeenAt: previous?.runAt || null,
+          confidence: confidence.level,
+          confidenceScore: confidence.score,
+          missingData: confidence.missingData,
+        };
+      }
+
+      function findPreviousAlert(title) {
+        return inspectionHistory
+          .flatMap((inspection) => (inspection.alerts || []).map((alert) => ({ ...alert, runAt: inspection.runAt })))
+          .filter((alert) => alert.title === title)
+          .sort((a, b) => new Date(b.runAt) - new Date(a.runAt))[0];
+      }
+
+      function calculateRiskScore(alert) {
+        const base = { critical: 82, warning: 62, info: 42 }[alert.severity] || 45;
+        const evidence = alert.evidence || "";
+        const percentMatches = [...evidence.matchAll(/-?\d+(?=%)/g)].map((match) => Math.abs(Number(match[0])));
+        const percentImpact = percentMatches.length ? Math.min(12, Math.max(...percentMatches) / 8) : 0;
+        const zeroInventoryImpact = /库存 0/.test(evidence) ? 12 : 0;
+        const refundImpact = alert.title.includes("退款") ? 6 : 0;
+        const fulfillmentImpact = alert.title.includes("履约") ? 8 : 0;
+
+        return Math.min(99, Math.round(base + percentImpact + zeroInventoryImpact + refundImpact + fulfillmentImpact));
+      }
+
+      function confidenceForAlert(alert) {
+        const evidence = alert.evidence || "";
+        const signalCount = [
+          /\d/.test(evidence),
+          /%/.test(evidence),
+          /订单|销售|库存|退款|履约|金额/.test(evidence),
+          evidence.includes("，"),
+        ].filter(Boolean).length;
+        const missingData = missingDataForAlert(alert);
+        const score = Math.min(95, 38 + signalCount * 14 + (alert.severity === "critical" ? 8 : 0));
+
+        return {
+          level: confidenceFromScore(score),
+          score,
+          missingData,
+        };
+      }
+
+      function missingDataForAlert(alert) {
+        if (alert.title.includes("销售") || alert.title.includes("订单量")) {
+          return ["广告花费与点击", "渠道流量", "结账转化率", "活动日历"];
+        }
+
+        if (alert.title.includes("库存")) {
+          return ["近 7 日 SKU 销量", "补货 ETA", "供应商可用库存", "广告投放商品清单"];
+        }
+
+        if (alert.title.includes("退款")) {
+          return ["退款原因标签", "客服工单", "退货商品批次", "物流签收时效"];
+        }
+
+        if (alert.title.includes("履约")) {
+          return ["仓库处理时长", "物流商状态", "三方履约应用日志", "异常订单备注"];
+        }
+
+        if (alert.title.includes("付款") || alert.title.includes("财务")) {
+          return ["支付失败原因", "风控拦截记录", "待付款提醒触达", "支付方式占比"];
+        }
+
+        return ["真实 Shopify 明细", "渠道上下文", "运营备注"];
+      }
+
+      function buildInspectionTrend() {
+        const current = stats(currentWindow());
+        const previous = stats(previousWindow());
+        const daily = buildDailySeries(14);
+        const last3 = average(daily.filter((item) => item.daysAgo <= 2).map((item) => item.revenue));
+        const prev3 = average(daily.filter((item) => item.daysAgo >= 3 && item.daysAgo <= 5).map((item) => item.revenue));
+        const last3VsPrev3 = pct(last3, prev3) || 0;
+        const revenueChange = pct(current.revenue, previous.revenue) || 0;
+        const orderChange = pct(current.orders, previous.orders) || 0;
+        const aovChange = pct(current.aov, previous.aov) || 0;
+        const judgement =
+          revenueChange <= -rules.salesDrop && orderChange <= -rules.salesDrop
+            ? "销售额和订单量同时走弱，属于多指标共振异常。"
+            : last3VsPrev3 <= -20
+              ? "最近 3 天销售继续下探，短期趋势仍在恶化。"
+              : "当前异常更多来自局部指标，仍需继续观察。";
+
+        return {
+          judgement,
+          revenueChange,
+          orderChange,
+          aovChange,
+          last3VsPrev3,
+          daily,
+        };
+      }
+
+      function buildInspectionArchive(alerts) {
+        return alerts.map((alert) => {
+          const previousMatches = inspectionHistory
+            .flatMap((inspection) => (inspection.alerts || []).map((item) => ({ ...item, runAt: inspection.runAt })))
+            .filter((item) => item.title === alert.title)
+            .sort((a, b) => new Date(b.runAt) - new Date(a.runAt));
+          const previous = previousMatches[0];
+
+          return {
+            title: alert.title,
+            occurrences: previousMatches.length + 1,
+            currentScore: alert.score,
+            previousScore: previous?.score ?? null,
+            changeType: alert.changeType,
+            lastSeenAt: previous?.runAt || null,
+            confidence: alert.confidence,
+          };
+        });
+      }
+
+      function buildDailySeries(days) {
+        return Array.from({ length: days }, (_, offset) => {
+          const daysAgo = days - 1 - offset;
+          const list = orders.filter((order) => order.daysAgo === daysAgo);
+          const dayStats = stats(list);
+
+          return {
+            daysAgo,
+            revenue: dayStats.revenue,
+            orders: dayStats.orders,
+            aov: dayStats.aov,
+          };
+        });
+      }
+
+      function runInspection(options = {}) {
+        const snapshot = createInspectionSnapshot(options.source || "manual");
+        latestInspection = snapshot;
+        inspectionHistory = [snapshot, ...inspectionHistory.filter((item) => item.id !== snapshot.id)].slice(0, 12);
+        saveInspectionHistory();
+        renderInspection();
+
+        if (options.withAi !== false) {
+          requestInspectionAi(snapshot.id);
+        }
+      }
+
+      function initializeInspection() {
+        if (!inspectionHistory.length) {
+          inspectionHistory = seedInspectionHistory();
+          saveInspectionHistory();
+        }
+
+        const todayInspection = inspectionHistory.find((inspection) => inspection.dayKey === dateKey(new Date()) && inspection.source !== "seed");
+
+        if (todayInspection) {
+          latestInspection = todayInspection;
+          renderInspection();
+
+          if (!todayInspection.aiReport) {
+            requestInspectionAi(todayInspection.id);
+          }
+
+          return;
+        }
+
+        runInspection({ source: "auto", withAi: true });
+      }
+
+      async function requestInspectionAi(inspectionId) {
+        const snapshot = inspectionHistory.find((inspection) => inspection.id === inspectionId);
+
+        if (!snapshot) return;
+
+        inspectionAiLoadingId = inspectionId;
+        renderInspection();
+
+        try {
+          const response = await fetch(AI_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ inspection: compactInspectionForAi(snapshot) }),
+          });
+          const payload = await response.json();
+
+          if (!response.ok || !payload.report) {
+            throw new Error(payload.error || "AI 巡检日报生成失败");
+          }
+
+          updateInspectionReport(inspectionId, payload.report);
+        } catch {
+          updateInspectionReport(inspectionId, fallbackInspectionReport(snapshot));
+        } finally {
+          inspectionAiLoadingId = null;
+          renderInspection();
+        }
+      }
+
+      function compactInspectionForAi(snapshot) {
+        return {
+          runAt: snapshot.runAt,
+          summary: snapshot.summary,
+          trend: {
+            judgement: snapshot.trend.judgement,
+            revenueChange: snapshot.trend.revenueChange,
+            orderChange: snapshot.trend.orderChange,
+            aovChange: snapshot.trend.aovChange,
+            last3VsPrev3: snapshot.trend.last3VsPrev3,
+          },
+          alerts: snapshot.alerts.map((alert) => ({
+            title: alert.title,
+            severity: alert.severity,
+            evidence: alert.evidence,
+            action: alert.action,
+            score: alert.score,
+            previousScore: alert.previousScore,
+            changeType: alert.changeType,
+            confidence: alert.confidence,
+            missingData: alert.missingData,
+          })),
+          archive: snapshot.archive,
+          missingData: snapshot.missingData,
+        };
+      }
+
+      function updateInspectionReport(inspectionId, report) {
+        inspectionHistory = inspectionHistory.map((inspection) =>
+          inspection.id === inspectionId ? { ...inspection, aiReport: normalizeReport(report, inspection) } : inspection,
+        );
+        latestInspection = inspectionHistory.find((inspection) => inspection.id === inspectionId) || latestInspection;
+        saveInspectionHistory();
+      }
+
+      function fallbackInspectionReport(snapshot) {
+        const topAlert = [...snapshot.alerts].sort((a, b) => b.score - a.score)[0];
+
+        return {
+          dailySummary: `本次巡检命中 ${snapshot.summary.alertCount} 个异常，其中 ${snapshot.summary.criticalCount} 个严重异常。`,
+          trendJudgement: snapshot.trend.judgement,
+          archiveNotes: snapshot.archive.length
+            ? `同类异常中，${snapshot.archive.map((item) => `${item.title}出现 ${item.occurrences} 次`).join("；")}。`
+            : "暂无可归档的同类异常。",
+          changeAssessment: `${snapshot.summary.newCount} 个新问题，${snapshot.summary.worseCount} 个旧问题恶化，${snapshot.summary.persistentCount} 个旧问题持续。`,
+          confidence: snapshot.summary.confidence,
+          missingData: snapshot.missingData,
+          recommendedActions: unique(snapshot.alerts.map((alert) => alert.action)).slice(0, 4),
+          topPriority: topAlert?.title || "继续观察",
+        };
+      }
+
+      function normalizeReport(report, snapshot) {
+        const fallback = fallbackInspectionReport(snapshot);
+
+        return {
+          dailySummary: String(report.dailySummary || fallback.dailySummary),
+          trendJudgement: String(report.trendJudgement || fallback.trendJudgement),
+          archiveNotes: String(report.archiveNotes || fallback.archiveNotes),
+          changeAssessment: String(report.changeAssessment || fallback.changeAssessment),
+          confidence: ["高", "中", "低"].includes(report.confidence) ? report.confidence : fallback.confidence,
+          missingData: Array.isArray(report.missingData) ? report.missingData.slice(0, 6).map(String) : fallback.missingData,
+          recommendedActions: Array.isArray(report.recommendedActions)
+            ? report.recommendedActions.slice(0, 5).map(String)
+            : fallback.recommendedActions,
+          topPriority: String(report.topPriority || fallback.topPriority),
+        };
+      }
+
+      function renderInspection() {
+        const status = document.getElementById("inspectionStatus");
+        const metrics = document.getElementById("inspectionMetrics");
+        const report = document.getElementById("inspectionReport");
+        const trend = document.getElementById("inspectionTrend");
+        const archive = document.getElementById("inspectionArchive");
+        const history = document.getElementById("inspectionHistory");
+
+        if (!status || !metrics || !report || !trend || !archive || !history) return;
+
+        if (!latestInspection) {
+          status.innerHTML = "<strong>自动巡检待启动</strong><p>打开页面后会自动生成今日巡检快照。</p>";
+          metrics.innerHTML = "";
+          report.innerHTML = "";
+          trend.innerHTML = "";
+          archive.innerHTML = "";
+          history.innerHTML = "";
+          return;
+        }
+
+        const snapshot = latestInspection;
+        const summary = snapshot.summary;
+        const loading = inspectionAiLoadingId === snapshot.id;
+
+        status.innerHTML = `
+          <strong>已完成 ${snapshot.source === "auto" ? "自动" : "手动"}巡检 · ${formatRunTime(snapshot.runAt)}</strong>
+          <p>本次命中 ${summary.alertCount} 个异常：${summary.newCount} 个新问题，${summary.worseCount} 个旧问题恶化，${summary.persistentCount} 个旧问题持续。</p>
+          <div class="tagRow">
+            <span class="tag ${summary.criticalCount ? "hot" : "good"}">严重 ${summary.criticalCount}</span>
+            <span class="tag warn">预警 ${summary.warningCount}</span>
+            <span class="tag">证据置信度 ${summary.confidence}</span>
+          </div>
+        `;
+
+        metrics.innerHTML = [
+          ["今日重点", snapshot.aiReport?.topPriority || snapshot.alerts[0]?.title || "继续观察", "AI 从异常分数和趋势里选出的优先项"],
+          ["销售波动", formatPct(summary.revenueChange), `${money.format(summary.previousRevenue)} → ${money.format(summary.revenue)}`],
+          ["订单波动", formatPct(summary.orderChange), `${summary.previousOrders} 单 → ${summary.orders} 单`],
+        ]
+          .map(
+            ([label, value, detail]) => `
+              <div class="inspectionNote">
+                <span>${label}</span>
+                <strong>${escapeHtml(String(value))}</strong>
+                <p>${escapeHtml(String(detail))}</p>
+              </div>
+            `,
+          )
+          .join("");
+
+        report.innerHTML = loading
+          ? "<p>AI 正在生成巡检日报，会综合异常、趋势、归档和缺失数据。</p>"
+          : renderInspectionReport(snapshot.aiReport || fallbackInspectionReport(snapshot));
+
+        trend.innerHTML = `
+          <p>${escapeHtml(snapshot.trend.judgement)}</p>
+          <div class="tagRow">
+            <span class="tag ${snapshot.trend.revenueChange <= -rules.salesDrop ? "hot" : "warn"}">销售额 ${formatPct(snapshot.trend.revenueChange)}</span>
+            <span class="tag ${snapshot.trend.orderChange <= -rules.salesDrop ? "hot" : "warn"}">订单量 ${formatPct(snapshot.trend.orderChange)}</span>
+            <span class="tag">客单价 ${formatPct(snapshot.trend.aovChange)}</span>
+            <span class="tag">近 3 天 ${formatPct(snapshot.trend.last3VsPrev3)}</span>
+          </div>
+        `;
+
+        archive.innerHTML = snapshot.archive
+          .map(
+            (item) => `
+              <div class="historyItem">
+                <strong>${escapeHtml(item.title)}</strong>
+                <p>${item.changeType} · 出现 ${item.occurrences} 次 · 当前风险 ${item.currentScore}${item.previousScore === null ? "" : `，上次 ${item.previousScore}`}</p>
+                <div class="tagRow">
+                  <span class="tag ${item.changeType.includes("恶化") ? "hot" : item.changeType.includes("新") ? "warn" : "good"}">${item.changeType}</span>
+                  <span class="tag">置信度 ${item.confidence}</span>
+                </div>
+              </div>
+            `,
+          )
+          .join("");
+
+        history.innerHTML = inspectionHistory
+          .slice(0, 6)
+          .map(
+            (item) => `
+              <div class="historyItem">
+                <strong>${formatRunTime(item.runAt)}</strong>
+                <p>${item.summary.alertCount} 个异常 · 严重 ${item.summary.criticalCount} · 新增 ${item.summary.newCount} · 恶化 ${item.summary.worseCount}</p>
+                <div class="tagRow">
+                  ${(item.alerts || []).slice(0, 3).map((alert) => `<span class="tag">${escapeHtml(alert.title)}</span>`).join("")}
+                </div>
+              </div>
+            `,
+          )
+          .join("");
+      }
+
+      function renderInspectionReport(report) {
+        return `
+          <p>${escapeHtml(report.dailySummary)}</p>
+          <p>${escapeHtml(report.trendJudgement)}</p>
+          <p>${escapeHtml(report.archiveNotes)}</p>
+          <p>${escapeHtml(report.changeAssessment)}</p>
+          <div class="tagRow">
+            <span class="tag ${report.confidence === "高" ? "good" : report.confidence === "低" ? "warn" : ""}">置信度 ${escapeHtml(report.confidence)}</span>
+            ${(report.missingData || []).slice(0, 4).map((item) => `<span class="tag">${escapeHtml(item)}</span>`).join("")}
+          </div>
+          <p>下一步：${(report.recommendedActions || []).map(escapeHtml).join("；")}</p>
+        `;
+      }
+
+      function formatRunTime(value) {
+        return new Intl.DateTimeFormat("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(value));
+      }
+
+      function formatPct(value) {
+        if (value === null || Number.isNaN(value)) return "无对比";
+        return `${value > 0 ? "+" : ""}${value.toFixed(0)}%`;
+      }
+
+      function dateKey(date) {
+        return date.toISOString().slice(0, 10);
+      }
+
+      function average(values) {
+        const clean = values.filter((value) => Number.isFinite(value));
+        return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : 0;
+      }
+
+      function confidenceFromScore(score) {
+        if (score >= 75) return "高";
+        if (score >= 55) return "中";
+        return "低";
+      }
+
+      function unique(values) {
+        return [...new Set(values.filter(Boolean))];
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
       function render() {
         const current = stats(currentWindow());
         const previous = stats(previousWindow());
@@ -883,6 +1595,7 @@
           .join("");
 
         window.currentAlerts = alerts;
+        renderInspection();
       }
 
       function syncRule(key, value) {
@@ -900,7 +1613,7 @@
         box.innerHTML = `<strong>AI 正在分析...</strong><p>正在把规则命中、证据链和运营动作交给服务端模型解释。</p>`;
 
         try {
-          const response = await fetch("https://tt1-d2gfab46g22e748ed.service.tcloudbase.com/shopify-ai-explain", {
+          const response = await fetch(AI_ENDPOINT, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ alert }),
@@ -914,11 +1627,12 @@
           const explanation = payload.explanation;
           box.innerHTML = `
             <strong>真实 AI 解释</strong>
-            <p>${explanation.summary}</p>
-            <p>${explanation.whyItMatters}</p>
-            <p>可能原因：${explanation.likelyCause}</p>
-            <p>建议动作：${(explanation.recommendedActions || []).join("；")}</p>
-            <p>置信度：${explanation.confidence || "中"}</p>
+            <p>${escapeHtml(explanation.summary)}</p>
+            <p>${escapeHtml(explanation.whyItMatters)}</p>
+            <p>可能原因：${escapeHtml(explanation.likelyCause)}</p>
+            <p>建议动作：${(explanation.recommendedActions || []).map(escapeHtml).join("；")}</p>
+            <p>置信度：${escapeHtml(explanation.confidence || "中")}</p>
+            <p>缺失数据：${(explanation.unknowns || []).map(escapeHtml).join("；")}</p>
           `;
         } catch (error) {
           box.innerHTML = `
@@ -933,15 +1647,29 @@
       document.getElementById("saveRules").addEventListener("click", () => {
         localStorage.setItem("shopify-ai-demo-rules", JSON.stringify(rules));
         render();
+        runInspection({ source: "rule-update", withAi: true });
       });
 
       document.getElementById("resetDemo").addEventListener("click", () => {
         localStorage.removeItem("shopify-ai-demo-rules");
         rules = { ...defaultRules };
         render();
+        runInspection({ source: "manual", withAi: true });
+      });
+
+      document.getElementById("runInspection").addEventListener("click", () => {
+        runInspection({ source: "manual", withAi: true });
+      });
+
+      document.getElementById("clearInspectionHistory").addEventListener("click", () => {
+        inspectionHistory = [];
+        latestInspection = null;
+        saveInspectionHistory();
+        runInspection({ source: "manual", withAi: true });
       });
 
       render();
+      initializeInspection();
     </script>
   </body>
 </html>
