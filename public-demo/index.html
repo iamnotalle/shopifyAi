@@ -562,6 +562,44 @@
         color: var(--green);
       }
 
+      .scoreBar {
+        background: #edf0f5;
+        border-radius: 999px;
+        height: 0.55rem;
+        overflow: hidden;
+      }
+
+      .scoreBar span {
+        background: var(--brand);
+        border-radius: inherit;
+        display: block;
+        height: 100%;
+      }
+
+      .scoreBar span.good {
+        background: var(--green);
+      }
+
+      .scoreBar span.warn {
+        background: var(--amber);
+      }
+
+      .scoreBar span.hot {
+        background: var(--red);
+      }
+
+      .qualityOutput {
+        background: #f7f8fb;
+        border: 1px solid var(--line);
+        border-radius: 0.55rem;
+        color: #384158;
+        font-size: 0.88rem;
+        line-height: 1.5;
+        max-height: 8rem;
+        overflow: auto;
+        padding: 0.6rem;
+      }
+
       .hidden {
         display: none;
       }
@@ -627,6 +665,10 @@
         <a class="sideLink" href="#inspection">
           <strong>自动巡检</strong>
           <small>日报、趋势、归档、告警历史</small>
+        </a>
+        <a class="sideLink" href="#ai-quality">
+          <strong>AI 质量评估</strong>
+          <small>固定 case、证据引用、幻觉检查</small>
         </a>
         <a class="sideLink" href="#rules">
           <strong>规则配置</strong>
@@ -698,6 +740,24 @@
                 <div class="insightList" id="inspectionHistory"></div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="panel" id="ai-quality">
+          <div class="panelHeader">
+            <div>
+              <span>AI Evaluation</span>
+              <strong>AI 质量评估</strong>
+            </div>
+            <div class="buttonRow">
+              <button class="btn secondary" id="resetAiQuality">重置结果</button>
+              <button class="btn" id="runAiQuality">运行评估</button>
+            </div>
+          </div>
+          <div class="panelBody inspectionStack">
+            <div class="inspectionNote" id="aiQualityStatus"></div>
+            <div class="grid4" id="aiQualityMetrics"></div>
+            <div class="insightList" id="aiQualityCases"></div>
           </div>
         </section>
 
@@ -821,6 +881,103 @@
         ["refundRate", "退款率阈值", "%", 2, 40, 2],
       ];
 
+      const aiQualityRepeatCount = 2;
+      const hallucinationBlocklist = [
+        "Facebook",
+        "Meta",
+        "TikTok",
+        "Google Ads",
+        "DHL",
+        "FedEx",
+        "KOL",
+        "达人投放",
+        "供应商断货",
+        "客户投诉激增",
+        "差评暴增",
+        "折扣码失效",
+        "支付网关故障",
+        "广告被拒",
+        "物流延误",
+        "竞品降价",
+      ];
+      const aiQualityCases = [
+        {
+          id: "sales-drop",
+          name: "销售额大幅下滑",
+          goal: "AI 应引用销售额、订单量和客单价证据，不能编造广告或流量事实。",
+          alert: {
+            severity: "critical",
+            title: "销售额大幅下滑",
+            message: "最近 7 天销售额明显低于前 7 天。",
+            evidence: "销售额变化 -48%，订单量变化 -42%，客单价从 $253 变为 $229。",
+            action: "检查投放、结账链路、主推商品库存和活动节奏。",
+          },
+          evidenceTokens: ["-48%", "-42%", "$253", "$229"],
+          actionTerms: ["检查", "投放", "结账", "库存", "活动"],
+          acceptableConfidence: ["高", "中"],
+        },
+        {
+          id: "inventory-risk",
+          name: "低库存风险",
+          goal: "AI 应定位具体商品和库存数字，建议补货或暂停投放。",
+          alert: {
+            severity: "warning",
+            title: "库存风险",
+            message: "多个核心商品低于库存预警阈值。",
+            evidence: "Ulike ReGlow Bundle 库存 0，Ulike Air 10 IPL 库存 3，当前阈值为 5。",
+            action: "优先补货 ReGlow Bundle；Air 10 IPL 保留低预算投放并同步采购 ETA。",
+          },
+          evidenceTokens: ["ReGlow", "库存 0", "Air 10", "库存 3", "阈值为 5"],
+          actionTerms: ["补货", "暂停", "投放", "采购", "ETA"],
+          acceptableConfidence: ["高", "中"],
+        },
+        {
+          id: "fulfillment-delay",
+          name: "高金额订单履约超时",
+          goal: "AI 应引用订单号、金额和超时小时，不应编造物流商原因。",
+          alert: {
+            severity: "warning",
+            title: "高金额订单履约超时",
+            message: "高金额订单超过规则阈值仍未履约。",
+            evidence: "#D2030 金额 $680，超过 72 小时仍未履约；规则阈值为 36 小时。",
+            action: "拉出 #D2030，确认仓库、物流和第三方履约应用状态。",
+          },
+          evidenceTokens: ["#D2030", "$680", "72 小时", "36 小时"],
+          actionTerms: ["拉出", "确认", "仓库", "物流", "履约"],
+          acceptableConfidence: ["高", "中"],
+        },
+        {
+          id: "refund-rate",
+          name: "退款率超过阈值",
+          goal: "AI 应说明退款异常值得复盘，但把原因留给缺失数据。",
+          alert: {
+            severity: "warning",
+            title: "退款率超过阈值",
+            message: "退款相关订单占比超过规则阈值。",
+            evidence: "退款相关订单占比 18%，当前阈值为 12%；涉及 #D2031、#D2027、#D2010。",
+            action: "复盘退款订单商品、客服标签、取消原因和履约体验。",
+          },
+          evidenceTokens: ["18%", "12%", "#D2031", "#D2027", "#D2010"],
+          actionTerms: ["复盘", "退款", "客服", "原因", "履约"],
+          acceptableConfidence: ["中", "高"],
+        },
+        {
+          id: "low-evidence",
+          name: "证据不足的销售波动",
+          goal: "AI 应降低置信度，并明确缺少流量、广告、转化率数据。",
+          alert: {
+            severity: "info",
+            title: "销售波动证据不足",
+            message: "销售有轻微波动，但未达到正式告警阈值。",
+            evidence: "销售额变化 -18%，订单量变化 -4%，未达到 35% 下滑阈值；缺少流量、广告花费和转化率数据。",
+            action: "先补充流量、广告花费、转化率和活动日历，再判断是否升级为告警。",
+          },
+          evidenceTokens: ["-18%", "-4%", "35%", "流量", "广告花费", "转化率"],
+          actionTerms: ["补充", "流量", "广告花费", "转化率", "活动日历"],
+          acceptableConfidence: ["低", "中"],
+        },
+      ];
+
       const products = [
         { id: "air10", title: "Ulike Air 10 IPL", inventory: 3, price: 220 },
         { id: "prestige", title: "Ulike Prestige Pro Bundle", inventory: 2, price: 680 },
@@ -879,6 +1036,13 @@
       let inspectionHistory = loadInspectionHistory();
       let latestInspection = inspectionHistory[0] || null;
       let inspectionAiLoadingId = null;
+      let aiQualityState = {
+        status: "idle",
+        message: "等待运行固定异常 case。",
+        results: [],
+        startedAt: null,
+        finishedAt: null,
+      };
       let cloudState = {
         status: "loading",
         message: "CloudBase 数据库连接中",
@@ -1806,6 +1970,307 @@
         `;
       }
 
+      async function runAiQualityEvaluation() {
+        if (aiQualityState.status === "running") {
+          return;
+        }
+
+        aiQualityState = {
+          status: "running",
+          message: `正在运行 ${aiQualityCases.length} 个固定 case，每个 case 重复 ${aiQualityRepeatCount} 次。`,
+          results: [],
+          startedAt: new Date().toISOString(),
+          finishedAt: null,
+        };
+        renderAiQualityEvaluation();
+
+        for (const testCase of aiQualityCases) {
+          const attempts = [];
+
+          for (let index = 0; index < aiQualityRepeatCount; index += 1) {
+            attempts.push(await requestAiQualityAttempt(testCase, index + 1));
+          }
+
+          aiQualityState = {
+            ...aiQualityState,
+            results: [...aiQualityState.results, evaluateAiQualityCase(testCase, attempts)],
+            message: `已完成 ${aiQualityState.results.length + 1}/${aiQualityCases.length} 个 case。`,
+          };
+          renderAiQualityEvaluation();
+        }
+
+        const averageScore = average(aiQualityState.results.map((item) => item.score));
+        aiQualityState = {
+          ...aiQualityState,
+          status: averageScore >= 80 ? "passed" : "review",
+          message: averageScore >= 80 ? "AI 质量评估通过，可用于 Demo 展示。" : "AI 质量需要复核，建议查看低分 case。",
+          finishedAt: new Date().toISOString(),
+        };
+        renderAiQualityEvaluation();
+      }
+
+      async function requestAiQualityAttempt(testCase, runIndex) {
+        try {
+          const response = await fetch(AI_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              alert: {
+                ...testCase.alert,
+                evaluationCaseId: testCase.id,
+                evaluationRun: runIndex,
+              },
+            }),
+          });
+          const payload = await response.json();
+
+          if (!response.ok || !payload.explanation) {
+            throw new Error(payload.error || "AI 解释生成失败");
+          }
+
+          return {
+            runIndex,
+            source: "real-ai",
+            explanation: payload.explanation,
+          };
+        } catch (error) {
+          return {
+            runIndex,
+            source: "fallback",
+            error: error.message || "AI 解释生成失败",
+            explanation: fallbackEvaluationExplanation(testCase),
+          };
+        }
+      }
+
+      function fallbackEvaluationExplanation(testCase) {
+        return {
+          summary: `${testCase.alert.title}命中固定评估 case。`,
+          whyItMatters: `输入证据为：${testCase.alert.evidence}`,
+          likelyCause: "现有证据不足以断言单一原因，需要补充上下文后再判断。",
+          recommendedActions: [testCase.alert.action, "记录本次异常并在下一次巡检中复核同类指标。"],
+          confidence: testCase.acceptableConfidence[0],
+          unknowns: ["流量来源", "广告花费", "转化率", "客服反馈"].slice(0, 3),
+        };
+      }
+
+      function evaluateAiQualityCase(testCase, attempts) {
+        const scoredAttempts = attempts.map((attempt) => scoreAiQualityAttempt(testCase, attempt));
+        const scores = scoredAttempts.map((item) => item.score);
+        const spread = Math.max(...scores) - Math.min(...scores);
+        const stabilityPassed = spread <= 15 && scoredAttempts.every((item) => item.structurePassed);
+        const averageScore = Math.max(0, Math.round(average(scores) - (stabilityPassed ? 0 : 8)));
+        const allBlockedHits = unique(scoredAttempts.flatMap((item) => item.blockedHits));
+        const evidenceHits = unique(scoredAttempts.flatMap((item) => item.evidenceHits));
+        const actionHits = unique(scoredAttempts.flatMap((item) => item.actionHits));
+        const confidenceValues = unique(scoredAttempts.map((item) => item.confidence));
+
+        return {
+          id: testCase.id,
+          name: testCase.name,
+          goal: testCase.goal,
+          score: averageScore,
+          source: attempts.some((attempt) => attempt.source === "fallback") ? "含本地兜底" : "真实 AI",
+          spread,
+          attempts: scoredAttempts,
+          checks: [
+            {
+              label: "是否幻觉",
+              passed: allBlockedHits.length === 0,
+              detail: allBlockedHits.length ? `疑似编造：${allBlockedHits.join("、")}` : "未命中禁用事实词",
+            },
+            {
+              label: "是否准确引用证据",
+              passed: evidenceHits.length / testCase.evidenceTokens.length >= 0.6,
+              detail: `命中 ${evidenceHits.length}/${testCase.evidenceTokens.length} 个证据 token：${evidenceHits.join("、") || "无"}`,
+            },
+            {
+              label: "建议是否可执行",
+              passed: scoredAttempts.every((item) => item.actionablePassed),
+              detail: `动作词：${actionHits.join("、") || "无"}；每次至少 2 条建议`,
+            },
+            {
+              label: "置信度是否合理",
+              passed: scoredAttempts.every((item) => item.confidencePassed),
+              detail: `期望 ${testCase.acceptableConfidence.join("/")}；实际 ${confidenceValues.join("/")}`,
+            },
+            {
+              label: "重复输出是否稳定",
+              passed: stabilityPassed,
+              detail: `两次评分波动 ${spread} 分，结构字段${scoredAttempts.every((item) => item.structurePassed) ? "完整" : "缺失"}`,
+            },
+          ],
+          sampleOutput: scoredAttempts[0]?.text || "",
+        };
+      }
+
+      function scoreAiQualityAttempt(testCase, attempt) {
+        const explanation = normalizeEvaluationExplanation(attempt.explanation);
+        const text = explanationText(explanation);
+        const evidenceHits = testCase.evidenceTokens.filter((token) => text.includes(token));
+        const blockedHits = hallucinationBlocklist.filter((term) => text.includes(term));
+        const actionText = explanation.recommendedActions.join("；");
+        const actionHits = testCase.actionTerms.filter((term) => actionText.includes(term) || text.includes(term));
+        const actionablePassed = explanation.recommendedActions.length >= 2 && actionHits.length >= 1;
+        const confidence = normalizeConfidence(explanation.confidence);
+        const confidencePassed = testCase.acceptableConfidence.includes(confidence);
+        const structurePassed =
+          Boolean(explanation.summary) &&
+          Boolean(explanation.whyItMatters) &&
+          Boolean(explanation.likelyCause) &&
+          explanation.recommendedActions.length > 0 &&
+          Boolean(confidence);
+        const evidenceScore = (evidenceHits.length / testCase.evidenceTokens.length) * 25;
+        const hallucinationScore = blockedHits.length ? 0 : 25;
+        const actionScore = actionablePassed ? 20 : Math.min(12, explanation.recommendedActions.length * 5 + actionHits.length * 4);
+        const confidenceScore = confidencePassed ? 15 : 6;
+        const structureScore = structurePassed ? 15 : 5;
+
+        return {
+          ...attempt,
+          explanation,
+          text,
+          evidenceHits,
+          blockedHits,
+          actionHits,
+          actionablePassed,
+          confidence,
+          confidencePassed,
+          structurePassed,
+          score: Math.round(evidenceScore + hallucinationScore + actionScore + confidenceScore + structureScore),
+        };
+      }
+
+      function normalizeEvaluationExplanation(value) {
+        return {
+          summary: String(value?.summary || ""),
+          whyItMatters: String(value?.whyItMatters || ""),
+          likelyCause: String(value?.likelyCause || ""),
+          recommendedActions: Array.isArray(value?.recommendedActions) ? value.recommendedActions.slice(0, 5).map(String) : [],
+          confidence: normalizeConfidence(value?.confidence),
+          unknowns: Array.isArray(value?.unknowns) ? value.unknowns.slice(0, 5).map(String) : [],
+        };
+      }
+
+      function explanationText(explanation) {
+        return [
+          explanation.summary,
+          explanation.whyItMatters,
+          explanation.likelyCause,
+          explanation.recommendedActions.join("；"),
+          explanation.confidence,
+          explanation.unknowns.join("；"),
+        ].join(" ");
+      }
+
+      function normalizeConfidence(value) {
+        const text = String(value || "中");
+
+        if (text.includes("高")) return "高";
+        if (text.includes("低")) return "低";
+        return "中";
+      }
+
+      function renderAiQualityEvaluation() {
+        const status = document.getElementById("aiQualityStatus");
+        const metrics = document.getElementById("aiQualityMetrics");
+        const cases = document.getElementById("aiQualityCases");
+
+        if (!status || !metrics || !cases) return;
+
+        const completed = aiQualityState.results.length;
+        const averageScore = completed ? Math.round(average(aiQualityState.results.map((item) => item.score))) : 0;
+        const passedChecks = aiQualityState.results.flatMap((item) => item.checks).filter((check) => check.passed).length;
+        const totalChecks = completed * 5;
+
+        status.innerHTML = `
+          <strong>${escapeHtml(aiQualityState.message)}</strong>
+          <p>评估维度：是否幻觉、是否准确引用证据、建议是否可执行、置信度是否合理、重复输出是否稳定。</p>
+          <div class="tagRow">
+            <span class="tag ${aiQualityState.status === "running" ? "warn" : aiQualityState.status === "passed" ? "good" : ""}">状态 ${escapeHtml(aiQualityStatusText(aiQualityState.status))}</span>
+            <span class="tag">固定 case ${aiQualityCases.length}</span>
+            <span class="tag">每个 case ${aiQualityRepeatCount} 次</span>
+            <span class="tag ${averageScore >= 85 ? "good" : averageScore >= 70 ? "warn" : completed ? "hot" : ""}">均分 ${completed ? averageScore : "-"}</span>
+          </div>
+        `;
+
+        metrics.innerHTML = [
+          ["完成进度", `${completed}/${aiQualityCases.length}`, "固定异常样本"],
+          ["平均分", completed ? `${averageScore}/100` : "待运行", "规则化质量评分"],
+          ["检查通过", completed ? `${passedChecks}/${totalChecks}` : "待运行", "五项检查逐 case 判断"],
+          ["低分 case", completed ? aiQualityState.results.filter((item) => item.score < 75).length : "待运行", "低于 75 分需复核"],
+        ]
+          .map(([label, value, detail]) => `<article class="card"><span>${label}</span><strong>${value}</strong><small>${detail}</small></article>`)
+          .join("");
+
+        cases.innerHTML = aiQualityCases
+          .map((testCase) => renderAiQualityCase(testCase, aiQualityState.results.find((item) => item.id === testCase.id)))
+          .join("");
+      }
+
+      function renderAiQualityCase(testCase, result) {
+        if (!result) {
+          return `
+            <div class="historyItem">
+              <strong>${escapeHtml(testCase.name)}</strong>
+              <p>${escapeHtml(testCase.goal)}</p>
+              <div class="tagRow">
+                <span class="tag">待运行</span>
+                <span class="tag">证据 token ${testCase.evidenceTokens.length}</span>
+                <span class="tag">期望置信度 ${testCase.acceptableConfidence.join("/")}</span>
+              </div>
+            </div>
+          `;
+        }
+
+        const tone = scoreTone(result.score);
+        return `
+          <div class="historyItem">
+            <strong>${escapeHtml(result.name)} · ${result.score}/100</strong>
+            <p>${escapeHtml(result.goal)}</p>
+            <div class="scoreBar"><span class="${tone}" style="width:${Math.max(3, result.score)}%"></span></div>
+            <div class="tagRow">
+              <span class="tag ${tone}">评分 ${result.score}</span>
+              <span class="tag">来源 ${escapeHtml(result.source)}</span>
+              <span class="tag">波动 ${result.spread} 分</span>
+            </div>
+            <table>
+              <tbody>
+                ${result.checks
+                  .map(
+                    (check) => `
+                      <tr>
+                        <td><span class="status ${check.passed ? "good" : "bad"}">${check.passed ? "通过" : "复核"}</span></td>
+                        <td>${escapeHtml(check.label)}</td>
+                        <td>${escapeHtml(check.detail)}</td>
+                      </tr>
+                    `,
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+            <div class="qualityOutput">${escapeHtml(result.sampleOutput)}</div>
+          </div>
+        `;
+      }
+
+      function aiQualityStatusText(status) {
+        return (
+          {
+            idle: "待评估",
+            running: "运行中",
+            passed: "已通过",
+            review: "需复核",
+          }[status] || "待评估"
+        );
+      }
+
+      function scoreTone(score) {
+        if (score >= 85) return "good";
+        if (score >= 70) return "warn";
+        return "hot";
+      }
+
       function formatRunTime(value) {
         return new Intl.DateTimeFormat("zh-CN", {
           month: "2-digit",
@@ -2006,6 +2471,7 @@
 
         window.currentAlerts = alerts;
         renderInspection();
+        renderAiQualityEvaluation();
       }
 
       function syncRule(key, value) {
@@ -2096,6 +2562,21 @@
 
       document.getElementById("runCloudInspection").addEventListener("click", () => {
         runCloudInspection();
+      });
+
+      document.getElementById("runAiQuality").addEventListener("click", () => {
+        runAiQualityEvaluation();
+      });
+
+      document.getElementById("resetAiQuality").addEventListener("click", () => {
+        aiQualityState = {
+          status: "idle",
+          message: "等待运行固定异常 case。",
+          results: [],
+          startedAt: null,
+          finishedAt: null,
+        };
+        renderAiQualityEvaluation();
       });
 
       document.getElementById("roleSelect").addEventListener("change", (event) => {

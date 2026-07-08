@@ -110,6 +110,33 @@ For a production Shopify app, derive the role from the authenticated Shopify app
 session or a server-side membership table instead of trusting a browser-provided
 role.
 
+## AI quality evaluation
+
+The public demo includes a fixed AI evaluation suite for the alert explanation
+endpoint. It uses five deterministic anomaly cases:
+
+- Sales drop.
+- Low inventory risk.
+- High-value fulfillment delay.
+- Refund-rate spike.
+- Low-evidence sales fluctuation.
+
+Each case is sent to the AI explanation endpoint twice. The browser-side scorer
+then checks:
+
+- Hallucination risk: blocks unsupported claims such as named ad platforms,
+  carriers, suppliers, customer complaint spikes, or competitor-price claims.
+- Evidence citation: verifies that the AI output repeats the required evidence
+  tokens from the case.
+- Actionability: verifies that the response includes concrete next actions.
+- Confidence fit: verifies that the AI confidence is reasonable for the evidence
+  richness of the case.
+- Repeat stability: checks that repeated runs keep a complete schema and do not
+  drift too far in score.
+
+This gives reviewers a repeatable way to test whether the AI is useful, rather
+than relying on one hand-picked explanation.
+
 This keeps the model key and database access server-side while still allowing
 the public link to behave like a real product demo. If this becomes a real
 Shopify app, replace the generated `demoId` with the authenticated Shopify shop
