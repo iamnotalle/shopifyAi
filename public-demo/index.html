@@ -893,16 +893,41 @@
         if (number) number.value = value;
       }
 
-      function explain(index) {
+      async function explain(index) {
         const alert = window.currentAlerts[index];
         const box = document.getElementById(`ai-${index}`);
         box.classList.remove("hidden");
-        box.innerHTML = `
-          <strong>AI 解释</strong>
-          <p>${alert.title}值得关注，因为它同时命中了规则阈值和业务证据：${alert.evidence}</p>
-          <p>最可能原因：${alert.title.includes("库存") ? "热卖商品库存不足会限制后续销售。" : "销售、订单、履约或退款指标出现联动异常，需要运营复核。"}</p>
-          <p>建议动作：${alert.action}</p>
-        `;
+        box.innerHTML = `<strong>AI 正在分析...</strong><p>正在把规则命中、证据链和运营动作交给服务端模型解释。</p>`;
+
+        try {
+          const response = await fetch("https://tt1-d2gfab46g22e748ed.service.tcloudbase.com/shopify-ai-explain", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ alert }),
+          });
+          const payload = await response.json();
+
+          if (!response.ok || !payload.explanation) {
+            throw new Error(payload.error || "AI 解释生成失败");
+          }
+
+          const explanation = payload.explanation;
+          box.innerHTML = `
+            <strong>真实 AI 解释</strong>
+            <p>${explanation.summary}</p>
+            <p>${explanation.whyItMatters}</p>
+            <p>可能原因：${explanation.likelyCause}</p>
+            <p>建议动作：${(explanation.recommendedActions || []).join("；")}</p>
+            <p>置信度：${explanation.confidence || "中"}</p>
+          `;
+        } catch (error) {
+          box.innerHTML = `
+            <strong>AI 解释演示</strong>
+            <p>${alert.title}值得关注，因为它同时命中了规则阈值和业务证据：${alert.evidence}</p>
+            <p>最可能原因：${alert.title.includes("库存") ? "热卖商品库存不足会限制后续销售。" : "销售、订单、履约或退款指标出现联动异常，需要运营复核。"}</p>
+            <p>建议动作：${alert.action}</p>
+          `;
+        }
       }
 
       document.getElementById("saveRules").addEventListener("click", () => {
