@@ -338,6 +338,19 @@
         justify-content: flex-end;
       }
 
+      .lifecycleActions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+      }
+
+      .noteInput {
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        min-width: min(100%, 20rem);
+        padding: 0.48rem 0.55rem;
+      }
+
       .chart {
         align-items: end;
         display: grid;
@@ -629,6 +642,7 @@
             </div>
             <div class="buttonRow">
               <button class="btn secondary" id="clearInspectionHistory">清空历史</button>
+              <button class="btn secondary" id="runCloudInspection">云端巡检</button>
               <button class="btn" id="runInspection">立即巡检</button>
             </div>
           </div>
@@ -644,6 +658,10 @@
                 <strong>多天趋势判断</strong>
                 <div id="inspectionTrend"></div>
               </div>
+            </div>
+            <div class="insightBlock">
+              <strong>告警处理</strong>
+              <div class="insightList" id="alertLifecycle"></div>
             </div>
             <div class="grid2">
               <div class="insightBlock">
@@ -840,6 +858,10 @@
         message: "CloudBase 数据库连接中",
         savedAt: null,
       };
+      const demoUser = {
+        userId: "demo-operator",
+        role: "admin",
+      };
       let cloudSaveTimer = null;
 
       function currentWindow() {
@@ -995,14 +1017,11 @@
           const payload = await requestDataApi({
             action: "getState",
             demoId,
+            ...demoUser,
           });
 
           if (payload.state) {
-            rules = { ...defaultRules, ...(payload.state.rules || {}) };
-            inspectionHistory = Array.isArray(payload.state.inspectionHistory) ? payload.state.inspectionHistory : [];
-            latestInspection = inspectionHistory[0] || null;
-            saveRulesLocal();
-            localStorage.setItem(inspectionHistoryKey, JSON.stringify(inspectionHistory.slice(0, 12)));
+            applyStatePayload(payload.state);
           }
 
           cloudState = {
@@ -1043,6 +1062,7 @@
           const payload = await requestDataApi({
             action: "saveState",
             demoId,
+            ...demoUser,
             state: {
               rules,
               inspectionHistory: inspectionHistory.slice(0, 12),
@@ -1080,6 +1100,93 @@
         return data;
       }
 
+      function applyStatePayload(state) {
+        rules = { ...defaultRules, ...(state.rules || {}) };
+        inspectionHistory = Array.isArray(state.inspectionHistory) ? state.inspectionHistory : [];
+        latestInspection = inspectionHistory[0] || null;
+        saveRulesLocal();
+        localStorage.setItem(inspectionHistoryKey, JSON.stringify(inspectionHistory.slice(0, 12)));
+      }
+
+      async function runCloudInspection() {
+        cloudState = {
+          ...cloudState,
+          status: "saving",
+          message: "云端定时巡检执行中",
+        };
+        renderInspection();
+
+        try {
+          const payload = await requestDataApi({
+            action: "runScheduledInspection",
+            demoId,
+            ...demoUser,
+          });
+
+          if (payload.state) {
+            applyStatePayload(payload.state);
+          }
+
+          cloudState = {
+            status: "saved",
+            message: "云端巡检已写入数据库",
+            savedAt: new Date().toISOString(),
+          };
+        } catch {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: "云端巡检失败，请稍后重试",
+          };
+        }
+
+        render();
+      }
+
+      async function updateAlertLifecycle(inspectionId, alertId, status, note = "") {
+        try {
+          const payload = await requestDataApi({
+            action: "updateAlertLifecycle",
+            demoId,
+            ...demoUser,
+            inspectionId,
+            alertId,
+            status,
+            note,
+          });
+
+          if (payload.state) {
+            applyStatePayload(payload.state);
+          }
+
+          cloudState = {
+            status: "saved",
+            message: "告警状态已保存",
+            savedAt: new Date().toISOString(),
+          };
+        } catch {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: "告警状态保存失败",
+          };
+        }
+
+        render();
+      }
+
+      function addAlertNote(inspectionId, alertId, inputId) {
+        const input = document.getElementById(inputId);
+        const note = input?.value.trim() || "";
+
+        if (!note) {
+          return;
+        }
+
+        input.value = "";
+        updateAlertLifecycle(inspectionId, alertId, "in_progress", note);
+      }
+
       function seedInspectionHistory() {
         return [
           createSeedInspection(3, [
@@ -1108,6 +1215,11 @@
           confidence: score >= 65 ? "中" : "低",
           confidenceScore: score,
           missingData: missingDataForAlert({ title }).slice(0, 3),
+          lifecycleStatus: "open",
+          ownerUserId: null,
+          ownerRole: null,
+          openedAt: runAt.toISOString(),
+          lifecycleNotes: [],
         }));
 
         return {
@@ -1219,6 +1331,11 @@
           confidence: confidence.level,
           confidenceScore: confidence.score,
           missingData: confidence.missingData,
+          lifecycleStatus: alert.lifecycleStatus || "open",
+          ownerUserId: alert.ownerUserId || null,
+          ownerRole: alert.ownerRole || null,
+          openedAt: alert.openedAt || new Date().toISOString(),
+          lifecycleNotes: Array.isArray(alert.lifecycleNotes) ? alert.lifecycleNotes : [],
         };
       }
 
@@ -1482,16 +1599,18 @@
         const metrics = document.getElementById("inspectionMetrics");
         const report = document.getElementById("inspectionReport");
         const trend = document.getElementById("inspectionTrend");
+        const lifecycle = document.getElementById("alertLifecycle");
         const archive = document.getElementById("inspectionArchive");
         const history = document.getElementById("inspectionHistory");
 
-        if (!status || !metrics || !report || !trend || !archive || !history) return;
+        if (!status || !metrics || !report || !trend || !lifecycle || !archive || !history) return;
 
         if (!latestInspection) {
           status.innerHTML = "<strong>自动巡检待启动</strong><p>打开页面后会自动生成今日巡检快照。</p>";
           metrics.innerHTML = "";
           report.innerHTML = "";
           trend.innerHTML = "";
+          lifecycle.innerHTML = "";
           archive.innerHTML = "";
           history.innerHTML = "";
           return;
@@ -1542,6 +1661,34 @@
             <span class="tag">近 3 天 ${formatPct(snapshot.trend.last3VsPrev3)}</span>
           </div>
         `;
+
+        lifecycle.innerHTML = (snapshot.alerts || [])
+          .map(
+            (alert, index) => `
+              <div class="historyItem">
+                <strong>${escapeHtml(alert.title)}</strong>
+                <p>${escapeHtml(alert.evidence || alert.message || "")}</p>
+                <div class="tagRow">
+                  <span class="tag ${lifecycleStatusTone(alert.lifecycleStatus)}">${lifecycleStatusText(alert.lifecycleStatus)}</span>
+                  <span class="tag">负责人 ${escapeHtml(alert.ownerUserId || "未认领")}</span>
+                  <span class="tag">风险 ${alert.score || "-"}</span>
+                </div>
+                <div class="lifecycleActions">
+                  <button class="btn secondary" onclick="updateAlertLifecycle('${escapeJs(snapshot.id)}','${escapeJs(alert.id || alert.title)}','acknowledged')">认领</button>
+                  <button class="btn secondary" onclick="updateAlertLifecycle('${escapeJs(snapshot.id)}','${escapeJs(alert.id || alert.title)}','in_progress')">处理中</button>
+                  <button class="btn secondary" onclick="updateAlertLifecycle('${escapeJs(snapshot.id)}','${escapeJs(alert.id || alert.title)}','resolved')">解决</button>
+                  <button class="btn secondary" onclick="updateAlertLifecycle('${escapeJs(snapshot.id)}','${escapeJs(alert.id || alert.title)}','ignored')">忽略</button>
+                  <input class="noteInput" id="note-${index}" placeholder="处理备注" />
+                  <button class="btn secondary" onclick="addAlertNote('${escapeJs(snapshot.id)}','${escapeJs(alert.id || alert.title)}','note-${index}')">加备注</button>
+                </div>
+                ${(alert.lifecycleNotes || [])
+                  .slice(-2)
+                  .map((item) => `<p>备注：${escapeHtml(item.note)} · ${escapeHtml(item.userId || "")}</p>`)
+                  .join("")}
+              </div>
+            `,
+          )
+          .join("");
 
         archive.innerHTML = snapshot.archive
           .map(
@@ -1629,6 +1776,25 @@
         return "";
       }
 
+      function lifecycleStatusText(status) {
+        return (
+          {
+            open: "待处理",
+            acknowledged: "已认领",
+            in_progress: "处理中",
+            resolved: "已解决",
+            ignored: "已忽略",
+          }[status || "open"] || "待处理"
+        );
+      }
+
+      function lifecycleStatusTone(status) {
+        if (status === "resolved") return "good";
+        if (status === "ignored") return "";
+        if (status === "in_progress" || status === "acknowledged") return "warn";
+        return "hot";
+      }
+
       function unique(values) {
         return [...new Set(values.filter(Boolean))];
       }
@@ -1640,6 +1806,10 @@
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#039;");
+      }
+
+      function escapeJs(value) {
+        return String(value).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
       }
 
       function render() {
@@ -1809,6 +1979,10 @@
 
       document.getElementById("runInspection").addEventListener("click", () => {
         runInspection({ source: "manual", withAi: true });
+      });
+
+      document.getElementById("runCloudInspection").addEventListener("click", () => {
+        runCloudInspection();
       });
 
       document.getElementById("clearInspectionHistory").addEventListener("click", () => {

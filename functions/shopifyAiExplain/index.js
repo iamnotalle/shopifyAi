@@ -12,6 +12,13 @@ const COLLECTIONS = {
   alerts: "shopify_ai_alerts",
   reports: "shopify_ai_reports",
 };
+const DEFAULT_RULES = {
+  salesDrop: 35,
+  inventoryDays: 5,
+  highValueOrder: 450,
+  fulfillmentHours: 36,
+  refundRate: 12,
+};
 const PORT = Number(process.env.PORT || 9000);
 
 const cloudApp = cloudbase.init({
@@ -20,6 +27,15 @@ const cloudApp = cloudbase.init({
 const db = cloudApp.database();
 
 async function handlePayload(payload) {
+  if (isTimerPayload(payload)) {
+    return runScheduledInspections({
+      ...payload,
+      action: "runScheduledInspection",
+      userId: "cloudbase-scheduler",
+      role: "admin",
+    });
+  }
+
   if (payload.action) {
     return handleStateAction(payload);
   }
@@ -100,6 +116,26 @@ async function handleStateAction(payload) {
         collections: COLLECTIONS,
         state: null,
         persisted: false,
+      },
+    };
+  }
+
+  if (action === "runScheduledInspection") {
+    return runScheduledInspections({ ...payload, shopId, user });
+  }
+
+  if (action === "updateAlertLifecycle") {
+    const result = await updateAlertLifecycle(shopId, payload, user);
+    return {
+      statusCode: 200,
+      body: {
+        demoId: shopId,
+        shopId,
+        user,
+        collections: COLLECTIONS,
+        state: result.state,
+        updatedAlert: result.alert,
+        persisted: true,
       },
     };
   }
@@ -443,6 +479,302 @@ async function saveState(shopId, state, user) {
   return getState(shopId);
 }
 
+async function runScheduledInspections(payload) {
+  await ensureCollections();
+
+  const user = payload.user || {
+    userId: normalizeId(payload.userId || "cloudbase-scheduler"),
+    role: normalizeRole(payload.role || "admin"),
+  };
+  const targetShopId = payload.shopId && normalizeId(payload.shopId);
+  const shops = targetShopId ? [{ shopId: targetShopId }] : await getSchedulableShops();
+  const targets = shops.length ? shops : [{ shopId: "public-demo" }];
+  const results = [];
+
+  for (const shop of targets) {
+    const shopId = normalizeId(shop.shopId);
+    const state = await getState(shopId);
+    const rules = { ...DEFAULT_RULES, ...(state?.rules || {}) };
+    const inspection = buildScheduledInspection(shopId, rules, state?.inspectionHistory || []);
+    await ensureShopAndRules(shopId, rules, user, "scheduled");
+    await saveInspectionTree(shopId, inspection, 0, user, new Date().toISOString());
+    results.push({
+      shopId,
+      inspectionId: inspection.id,
+      alertCount: inspection.alerts.length,
+      topPriority: inspection.aiReport.topPriority,
+    });
+  }
+
+  const state = targetShopId ? await getState(targetShopId) : null;
+
+  return {
+    statusCode: 200,
+    body: {
+      scheduled: true,
+      ranAt: new Date().toISOString(),
+      results,
+      state,
+    },
+  };
+}
+
+async function updateAlertLifecycle(shopId, payload, user) {
+  await ensureCollections();
+
+  const status = normalizeAlertStatus(payload.status || payload.lifecycle?.status);
+  const note = asText(payload.note || payload.lifecycle?.note || "", 500);
+  const inspectionId = normalizeDocId(payload.inspectionId || "");
+  const alertId = payload.alertId ? normalizeDocId(payload.alertId) : "";
+  const alertTitle = payload.title || payload.alertTitle || "";
+  const alerts = await getShopDocuments(COLLECTIONS.alerts, shopId);
+  const alert = alerts.find(
+    (item) =>
+      (!inspectionId || item.inspectionId === inspectionId) &&
+      (!alertId || item.alertId === alertId || normalizeDocId(item.id || "") === alertId) &&
+      (!alertTitle || item.title === alertTitle),
+  );
+
+  if (!alert) {
+    return {
+      alert: null,
+      state: await getState(shopId),
+    };
+  }
+
+  const now = new Date().toISOString();
+  const nextNotes = Array.isArray(alert.lifecycleNotes) ? [...alert.lifecycleNotes] : [];
+
+  if (note) {
+    nextNotes.push({
+      note,
+      userId: user.userId,
+      role: user.role,
+      at: now,
+    });
+  }
+
+  const nextAlert = {
+    ...alert,
+    lifecycleStatus: status,
+    ownerUserId: payload.ownerUserId ? normalizeId(payload.ownerUserId) : alert.ownerUserId || user.userId,
+    ownerRole: normalizeRole(payload.ownerRole || alert.ownerRole || user.role),
+    lifecycleUpdatedAt: now,
+    lifecycleUpdatedBy: user.userId,
+    lifecycleNotes: nextNotes.slice(-12),
+    acknowledgedAt: status === "acknowledged" ? alert.acknowledgedAt || now : alert.acknowledgedAt || null,
+    inProgressAt: status === "in_progress" ? alert.inProgressAt || now : alert.inProgressAt || null,
+    resolvedAt: status === "resolved" ? now : alert.resolvedAt || null,
+    ignoredAt: status === "ignored" ? now : alert.ignoredAt || null,
+  };
+  const { _id, ...document } = nextAlert;
+  await db.collection(COLLECTIONS.alerts).doc(_id).set(document);
+
+  return {
+    alert: stripSystemFields(nextAlert),
+    state: await getState(shopId),
+  };
+}
+
+async function getSchedulableShops() {
+  try {
+    const result = await db.collection(COLLECTIONS.shops).limit(100).get();
+    return Array.isArray(result?.data) ? result.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function ensureShopAndRules(shopId, rules, user, source) {
+  const now = new Date().toISOString();
+  const existingShop = await getDocument(COLLECTIONS.shops, shopId);
+  const existingRules = await getDocument(COLLECTIONS.rules, rulesDocId(shopId));
+
+  if (!existingShop) {
+    await db.collection(COLLECTIONS.shops).doc(shopId).set({
+      shopId,
+      shopDomain: `${shopId}.demo.myshopify.com`,
+      platform: "shopify",
+      status: "demo",
+      plan: "public-demo",
+      installedByUserId: user.userId,
+      installedByRole: user.role,
+      permissions: ["rules:write", "inspections:write", "alerts:read", "ai_reports:read"],
+      createdBy: source,
+      updatedAt: now,
+      version: 2,
+    });
+  }
+
+  if (!existingRules) {
+    await db.collection(COLLECTIONS.rules).doc(rulesDocId(shopId)).set({
+      shopId,
+      ruleSetId: "default",
+      rules,
+      updatedByUserId: user.userId,
+      updatedByRole: user.role,
+      updatedAt: now,
+      version: 2,
+    });
+  }
+}
+
+function buildScheduledInspection(shopId, rules, history) {
+  const now = new Date();
+  const currentRevenue = 955;
+  const previousRevenue = 2730;
+  const currentOrders = 12;
+  const previousOrders = 26;
+  const revenueChange = pctNumber(currentRevenue, previousRevenue);
+  const orderChange = pctNumber(currentOrders, previousOrders);
+  const alerts = [
+    makeScheduledAlert({
+      title: "销售额大幅下滑",
+      severity: "critical",
+      evidence: `销售额变化 ${revenueChange.toFixed(0)}%，订单量变化 ${orderChange.toFixed(0)}%。`,
+      action: "检查投放、结账链路、主推商品库存和活动节奏。",
+      score: 91,
+      history,
+    }),
+    makeScheduledAlert({
+      title: "库存风险",
+      severity: "info",
+      evidence: `Ulike Air 10 IPL 库存 3，ReGlow Bundle 库存 0，低于规则阈值 ${rules.inventoryDays}。`,
+      action: "优先给仍有销量的低库存商品补货或暂停投放。",
+      score: 74,
+      history,
+    }),
+    makeScheduledAlert({
+      title: "高金额订单履约超时",
+      severity: "warning",
+      evidence: `1 笔订单超过 ${rules.fulfillmentHours} 小时仍未履约，金额高于 ${rules.highValueOrder} 美元。`,
+      action: "确认仓库、物流和三方履约应用状态。",
+      score: 70,
+      history,
+    }),
+  ];
+  const summary = summarizeScheduledAlerts(alerts);
+  const inspectionId = `scheduled-${dateKey(now)}-${Date.now()}`;
+
+  return {
+    id: inspectionId,
+    dayKey: dateKey(now),
+    runAt: now.toISOString(),
+    source: "scheduled",
+    summary: {
+      ...summary,
+      revenue: currentRevenue,
+      previousRevenue,
+      orders: currentOrders,
+      previousOrders,
+      revenueChange,
+      orderChange,
+      aovChange: -22,
+    },
+    trend: {
+      judgement: "定时巡检发现销售额和订单量同时走弱，且库存风险仍在持续。",
+      revenueChange,
+      orderChange,
+      aovChange: -22,
+      last3VsPrev3: -28,
+    },
+    alerts,
+    archive: alerts.map((alert) => ({
+      title: alert.title,
+      occurrences: countHistoricalAlerts(history, alert.title) + 1,
+      currentScore: alert.score,
+      previousScore: alert.previousScore,
+      changeType: alert.changeType,
+      confidence: alert.confidence,
+    })),
+    missingData: unique(alerts.flatMap((alert) => alert.missingData)).slice(0, 8),
+    aiReport: {
+      dailySummary: `${shopId} 定时巡检命中 ${alerts.length} 个异常，最高优先级是销售额大幅下滑。`,
+      trendJudgement: "销售额和订单量共振下滑，库存缺口可能继续限制后续转化。",
+      archiveNotes: "同类异常已按标题归档，用于判断新问题、持续问题和恶化问题。",
+      changeAssessment: `${summary.newCount} 个新问题，${summary.worseCount} 个旧问题恶化，${summary.persistentCount} 个旧问题持续。`,
+      confidence: summary.confidence,
+      missingData: unique(alerts.flatMap((alert) => alert.missingData)).slice(0, 6),
+      recommendedActions: unique(alerts.map((alert) => alert.action)).slice(0, 5),
+      topPriority: "销售额大幅下滑",
+    },
+  };
+}
+
+function makeScheduledAlert({ title, severity, evidence, action, score, history }) {
+  const previous = findHistoricalAlert(history, title);
+  const changeType = previous
+    ? score >= (previous.score || 0) + 8
+      ? "旧问题恶化"
+      : "旧问题持续"
+    : "新问题";
+
+  return {
+    id: normalizeDocId(title),
+    title,
+    severity,
+    message: evidence,
+    evidence,
+    action,
+    score,
+    previousScore: previous?.score ?? null,
+    changeType,
+    confidence: score >= 75 ? "高" : "中",
+    confidenceScore: score,
+    missingData: missingDataForScheduledAlert(title),
+    lifecycleStatus: "open",
+    ownerUserId: null,
+    ownerRole: null,
+    openedAt: new Date().toISOString(),
+    lifecycleNotes: [],
+  };
+}
+
+function summarizeScheduledAlerts(alerts) {
+  const confidenceScore = average(alerts.map((alert) => alert.confidenceScore || 45));
+
+  return {
+    alertCount: alerts.length,
+    criticalCount: alerts.filter((alert) => alert.severity === "critical").length,
+    warningCount: alerts.filter((alert) => alert.severity === "warning").length,
+    newCount: alerts.filter((alert) => alert.changeType === "新问题").length,
+    worseCount: alerts.filter((alert) => alert.changeType === "旧问题恶化").length,
+    persistentCount: alerts.filter((alert) => alert.changeType === "旧问题持续").length,
+    confidence: confidenceFromScore(confidenceScore),
+    confidenceScore,
+  };
+}
+
+function findHistoricalAlert(history, title) {
+  return (history || [])
+    .flatMap((inspection) => (inspection.alerts || []).map((alert) => ({ ...alert, runAt: inspection.runAt })))
+    .filter((alert) => alert.title === title)
+    .sort((a, b) => new Date(b.runAt || 0) - new Date(a.runAt || 0))[0];
+}
+
+function countHistoricalAlerts(history, title) {
+  return (history || []).reduce(
+    (count, inspection) => count + (inspection.alerts || []).filter((alert) => alert.title === title).length,
+    0,
+  );
+}
+
+function missingDataForScheduledAlert(title) {
+  if (title.includes("销售")) {
+    return ["广告花费与点击", "渠道流量", "结账转化率", "活动日历"];
+  }
+
+  if (title.includes("库存")) {
+    return ["近 7 日 SKU 销量", "补货 ETA", "供应商可用库存"];
+  }
+
+  if (title.includes("履约")) {
+    return ["仓库处理时长", "物流商状态", "三方履约应用日志"];
+  }
+
+  return ["真实 Shopify 明细", "运营备注"];
+}
+
 async function saveInspectionTree(shopId, inspection, index, user, now) {
   const inspectionId = normalizeDocId(inspection.id || `inspection-${index}`);
   const inspectionDocId = scopedDocId(shopId, inspectionId);
@@ -466,17 +798,30 @@ async function saveInspectionTree(shopId, inspection, index, user, now) {
   });
 
   await Promise.all(
-    alerts.map((alert, alertIndex) =>
-      db.collection(COLLECTIONS.alerts).doc(alertDocId(shopId, inspectionId, alertIndex, alert.title)).set({
+    alerts.map((alert, alertIndex) => {
+      const lifecycleStatus = normalizeAlertStatus(alert.lifecycleStatus || "open");
+
+      return db.collection(COLLECTIONS.alerts).doc(alertDocId(shopId, inspectionId, alertIndex, alert.title)).set({
         ...alert,
         shopId,
         inspectionId,
         alertId: normalizeDocId(alert.id || alert.title || `alert-${alertIndex}`),
         position: alertIndex,
+        lifecycleStatus,
+        ownerUserId: alert.ownerUserId || null,
+        ownerRole: alert.ownerRole || null,
+        openedAt: alert.openedAt || now,
+        acknowledgedAt: alert.acknowledgedAt || null,
+        inProgressAt: alert.inProgressAt || null,
+        resolvedAt: lifecycleStatus === "resolved" ? alert.resolvedAt || now : alert.resolvedAt || null,
+        ignoredAt: lifecycleStatus === "ignored" ? alert.ignoredAt || now : alert.ignoredAt || null,
+        lifecycleUpdatedAt: alert.lifecycleUpdatedAt || now,
+        lifecycleUpdatedBy: alert.lifecycleUpdatedBy || user.userId,
+        lifecycleNotes: Array.isArray(alert.lifecycleNotes) ? alert.lifecycleNotes.slice(-12) : [],
         updatedAt: now,
         version: 2,
-      }),
-    ),
+      });
+    }),
   );
 
   if (report) {
@@ -595,9 +940,18 @@ function sanitizeInspection(item) {
 }
 
 function normalizeId(value) {
-  const text = String(value || "public-demo").toLowerCase();
-  const normalized = text.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 48);
-  return normalized || "public-demo";
+  const text = String(value || "").toLowerCase();
+
+  if (!text) {
+    return "public-demo";
+  }
+
+  const normalized = text
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return normalized || `id-${hashText(text)}`;
 }
 
 function normalizeRole(value) {
@@ -607,6 +961,11 @@ function normalizeRole(value) {
 
 function normalizeDocId(value) {
   return normalizeId(value).slice(0, 64);
+}
+
+function normalizeAlertStatus(value) {
+  const status = String(value || "open").toLowerCase();
+  return ["open", "acknowledged", "in_progress", "resolved", "ignored"].includes(status) ? status : "open";
 }
 
 function scopedDocId(shopId, id) {
@@ -674,6 +1033,41 @@ function maxDate(values) {
   }
 
   return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function isTimerPayload(payload) {
+  return Boolean(payload?.TriggerName || payload?.triggerName || payload?.Type === "timer" || payload?.Time);
+}
+
+function pctNumber(current, previous) {
+  if (!previous) return 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function dateKey(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function average(values) {
+  const clean = values.filter((value) => Number.isFinite(value));
+  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : 0;
+}
+
+function confidenceFromScore(score) {
+  if (score >= 75) return "高";
+  if (score >= 55) return "中";
+  return "低";
+}
+
+function hashText(value) {
+  let hash = 0;
+  const text = String(value || "");
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+
+  return hash.toString(36);
 }
 
 function clampNumber(value, min, max, fallback) {

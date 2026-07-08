@@ -74,6 +74,17 @@ these collections:
 - `shopify_ai_alerts`
 - `shopify_ai_reports`
 
+Automatic patrol runs through a separate CloudBase event function:
+
+- Function: `shopifyAiScheduler`
+- Trigger: `dailyShopifyAiInspection`
+- Cron: `0 0 9 * * * *`
+
+The scheduler calls the server endpoint with `runScheduledInspection`, then the
+main function writes inspections, alerts, and AI reports into the normalized
+collections. Alerts also include lifecycle fields such as `lifecycleStatus`,
+`ownerUserId`, `lifecycleNotes`, `resolvedAt`, and `ignoredAt`.
+
 This keeps the model key and database access server-side while still allowing
 the public link to behave like a real product demo. If this becomes a real
 Shopify app, replace the generated `demoId` with the authenticated Shopify shop
