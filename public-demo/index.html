@@ -38,7 +38,8 @@
       }
 
       button,
-      input {
+      input,
+      select {
         font: inherit;
       }
 
@@ -336,6 +337,21 @@
         flex-wrap: wrap;
         gap: 0.5rem;
         justify-content: flex-end;
+      }
+
+      .roleControl {
+        align-items: center;
+        display: inline-flex;
+        gap: 0.45rem;
+      }
+
+      .roleControl select {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 0.55rem;
+        color: var(--ink);
+        font-weight: 750;
+        padding: 0.52rem 0.65rem;
       }
 
       .lifecycleActions {
@@ -641,6 +657,15 @@
               <strong>自动巡检日报</strong>
             </div>
             <div class="buttonRow">
+              <label class="roleControl">
+                <span>角色</span>
+                <select id="roleSelect">
+                  <option value="admin">Admin</option>
+                  <option value="analyst">Analyst</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </label>
               <button class="btn secondary" id="clearInspectionHistory">清空历史</button>
               <button class="btn secondary" id="runCloudInspection">云端巡检</button>
               <button class="btn" id="runInspection">立即巡检</button>
@@ -777,6 +802,7 @@
       const AI_ENDPOINT = "https://tt1-d2gfab46g22e748ed.service.tcloudbase.com/shopify-ai-explain";
       const DATA_ENDPOINT = AI_ENDPOINT;
       const demoIdKey = "shopify-ai-demo-id";
+      const demoRoleKey = "shopify-ai-demo-role";
       const inspectionHistoryKey = "shopify-ai-demo-inspection-history";
 
       const defaultRules = {
@@ -858,9 +884,9 @@
         message: "CloudBase 数据库连接中",
         savedAt: null,
       };
-      const demoUser = {
+      let demoUser = {
         userId: "demo-operator",
-        role: "admin",
+        role: localStorage.getItem(demoRoleKey) || "admin",
       };
       let cloudSaveTimer = null;
 
@@ -1000,6 +1026,12 @@
       }
 
       async function bootState() {
+        const roleSelect = document.getElementById("roleSelect");
+
+        if (roleSelect) {
+          roleSelect.value = demoUser.role;
+        }
+
         render();
         await loadCloudState();
         initializeInspection();
@@ -1051,6 +1083,16 @@
       }
 
       async function saveCloudStateNow(reason) {
+        if (!canRole("state:write")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能保存规则或巡检历史`,
+          };
+          renderInspection();
+          return;
+        }
+
         cloudState = {
           ...cloudState,
           status: "saving",
@@ -1074,11 +1116,11 @@
             message: "云数据库已保存",
             savedAt: payload.state?.updatedAt || new Date().toISOString(),
           };
-        } catch {
+        } catch (error) {
           cloudState = {
             ...cloudState,
             status: "offline",
-            message: "云数据库保存失败，已保留本地缓存",
+            message: error.message || "云数据库保存失败，已保留本地缓存",
           };
         }
 
@@ -1094,10 +1136,18 @@
         const data = await response.json();
 
         if (!response.ok || data.error) {
-          throw new Error(data.error || "Cloud database request failed.");
+          throw new Error(formatApiError(data, response.status));
         }
 
         return data;
+      }
+
+      function formatApiError(data, status) {
+        if (status === 403) {
+          return `权限不足：${data.message || "当前角色不允许执行此操作"}`;
+        }
+
+        return data.message || data.error || "Cloud database request failed.";
       }
 
       function applyStatePayload(state) {
@@ -1109,6 +1159,16 @@
       }
 
       async function runCloudInspection() {
+        if (!canRole("inspection:run")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能执行云端巡检`,
+          };
+          renderInspection();
+          return;
+        }
+
         cloudState = {
           ...cloudState,
           status: "saving",
@@ -1132,11 +1192,11 @@
             message: "云端巡检已写入数据库",
             savedAt: new Date().toISOString(),
           };
-        } catch {
+        } catch (error) {
           cloudState = {
             ...cloudState,
             status: "offline",
-            message: "云端巡检失败，请稍后重试",
+            message: error.message || "云端巡检失败，请稍后重试",
           };
         }
 
@@ -1144,6 +1204,16 @@
       }
 
       async function updateAlertLifecycle(inspectionId, alertId, status, note = "") {
+        if (!canRole("alert:lifecycle")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能处理告警`,
+          };
+          renderInspection();
+          return;
+        }
+
         try {
           const payload = await requestDataApi({
             action: "updateAlertLifecycle",
@@ -1164,11 +1234,11 @@
             message: "告警状态已保存",
             savedAt: new Date().toISOString(),
           };
-        } catch {
+        } catch (error) {
           cloudState = {
             ...cloudState,
             status: "offline",
-            message: "告警状态保存失败",
+            message: error.message || "告警状态保存失败",
           };
         }
 
@@ -1627,6 +1697,7 @@
             <span class="tag ${summary.criticalCount ? "hot" : "good"}">严重 ${summary.criticalCount}</span>
             <span class="tag warn">预警 ${summary.warningCount}</span>
             <span class="tag">证据置信度 ${summary.confidence}</span>
+            <span class="tag ${canRole("state:write") ? "good" : "warn"}">当前角色 ${roleLabel(demoUser.role)}</span>
             <span class="tag ${cloudStateTagTone()}">${escapeHtml(cloudState.message)}</span>
             <span class="tag">Demo ID ${escapeHtml(demoId.slice(-8))}</span>
           </div>
@@ -1793,6 +1864,28 @@
         if (status === "ignored") return "";
         if (status === "in_progress" || status === "acknowledged") return "warn";
         return "hot";
+      }
+
+      function canRole(permission) {
+        const permissions = {
+          owner: ["state:read", "state:write", "state:reset", "inspection:run", "alert:lifecycle"],
+          admin: ["state:read", "state:write", "state:reset", "inspection:run", "alert:lifecycle"],
+          analyst: ["state:read", "inspection:run", "alert:lifecycle"],
+          viewer: ["state:read"],
+        };
+
+        return (permissions[demoUser.role] || []).includes(permission);
+      }
+
+      function roleLabel(role) {
+        return (
+          {
+            owner: "Owner",
+            admin: "Admin",
+            analyst: "Analyst",
+            viewer: "Viewer",
+          }[role] || "Viewer"
+        );
       }
 
       function unique(values) {
@@ -1962,6 +2055,16 @@
       }
 
       document.getElementById("saveRules").addEventListener("click", () => {
+        if (!canRole("state:write")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能保存规则`,
+          };
+          renderInspection();
+          return;
+        }
+
         saveRulesLocal();
         queueCloudStateSave("rules");
         render();
@@ -1969,6 +2072,16 @@
       });
 
       document.getElementById("resetDemo").addEventListener("click", () => {
+        if (!canRole("state:write")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能重置规则`,
+          };
+          renderInspection();
+          return;
+        }
+
         localStorage.removeItem("shopify-ai-demo-rules");
         rules = { ...defaultRules };
         saveRulesLocal();
@@ -1985,7 +2098,31 @@
         runCloudInspection();
       });
 
+      document.getElementById("roleSelect").addEventListener("change", (event) => {
+        demoUser = {
+          ...demoUser,
+          role: event.target.value,
+        };
+        localStorage.setItem(demoRoleKey, demoUser.role);
+        cloudState = {
+          ...cloudState,
+          status: "connected",
+          message: `已切换为 ${roleLabel(demoUser.role)} 权限`,
+        };
+        render();
+      });
+
       document.getElementById("clearInspectionHistory").addEventListener("click", () => {
+        if (!canRole("state:reset")) {
+          cloudState = {
+            ...cloudState,
+            status: "offline",
+            message: `权限不足：${roleLabel(demoUser.role)} 不能清空数据`,
+          };
+          renderInspection();
+          return;
+        }
+
         inspectionHistory = [];
         latestInspection = null;
         saveInspectionHistory();

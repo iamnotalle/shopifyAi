@@ -85,6 +85,31 @@ main function writes inspections, alerts, and AI reports into the normalized
 collections. Alerts also include lifecycle fields such as `lifecycleStatus`,
 `ownerUserId`, `lifecycleNotes`, `resolvedAt`, and `ignoredAt`.
 
+## Demo RBAC
+
+The public demo includes server-side role-based access control. The browser role
+switch is only a demo control for reviewers; the CloudBase function still checks
+each write action and returns `403 Forbidden` when the role is not allowed.
+
+Role permissions:
+
+- `viewer`: read dashboard state only.
+- `analyst`: read state, run cloud inspections, and update alert lifecycle.
+- `admin`: all analyst permissions, plus save rules and reset state.
+- `owner`: same permissions as admin.
+
+Protected actions:
+
+- `getState`: requires `state:read`.
+- `saveState`: requires `state:write`.
+- `resetState`: requires `state:reset`.
+- `runScheduledInspection`: requires `inspection:run`.
+- `updateAlertLifecycle`: requires `alert:lifecycle`.
+
+For a production Shopify app, derive the role from the authenticated Shopify app
+session or a server-side membership table instead of trusting a browser-provided
+role.
+
 This keeps the model key and database access server-side while still allowing
 the public link to behave like a real product demo. If this becomes a real
 Shopify app, replace the generated `demoId` with the authenticated Shopify shop

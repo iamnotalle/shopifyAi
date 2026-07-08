@@ -19,6 +19,12 @@ const DEFAULT_RULES = {
   fulfillmentHours: 36,
   refundRate: 12,
 };
+const ROLE_PERMISSIONS = {
+  owner: ["state:read", "state:write", "state:reset", "inspection:run", "alert:lifecycle"],
+  admin: ["state:read", "state:write", "state:reset", "inspection:run", "alert:lifecycle"],
+  analyst: ["state:read", "inspection:run", "alert:lifecycle"],
+  viewer: ["state:read"],
+};
 const PORT = Number(process.env.PORT || 9000);
 
 const cloudApp = cloudbase.init({
@@ -71,10 +77,16 @@ async function handleStateAction(payload) {
   const shopId = normalizeId(payload.shopId || payload.demoId);
   const user = {
     userId: normalizeId(payload.userId || `${shopId}-owner`),
-    role: normalizeRole(payload.role || "owner"),
+    role: normalizeRole(payload.role || "viewer"),
   };
 
   if (action === "getState") {
+    const denied = denyUnlessAllowed(user, "state:read");
+
+    if (denied) {
+      return denied;
+    }
+
     const state = await getState(shopId);
     return {
       statusCode: 200,
@@ -90,6 +102,12 @@ async function handleStateAction(payload) {
   }
 
   if (action === "saveState") {
+    const denied = denyUnlessAllowed(user, "state:write");
+
+    if (denied) {
+      return denied;
+    }
+
     const state = sanitizeState(payload.state || {});
     const savedState = await saveState(shopId, state, user);
     return {
@@ -106,6 +124,12 @@ async function handleStateAction(payload) {
   }
 
   if (action === "resetState") {
+    const denied = denyUnlessAllowed(user, "state:reset");
+
+    if (denied) {
+      return denied;
+    }
+
     await deleteState(shopId);
     return {
       statusCode: 200,
@@ -121,10 +145,22 @@ async function handleStateAction(payload) {
   }
 
   if (action === "runScheduledInspection") {
+    const denied = denyUnlessAllowed(user, "inspection:run");
+
+    if (denied) {
+      return denied;
+    }
+
     return runScheduledInspections({ ...payload, shopId, user });
   }
 
   if (action === "updateAlertLifecycle") {
+    const denied = denyUnlessAllowed(user, "alert:lifecycle");
+
+    if (denied) {
+      return denied;
+    }
+
     const result = await updateAlertLifecycle(shopId, payload, user);
     return {
       statusCode: 200,
@@ -957,6 +993,25 @@ function normalizeId(value) {
 function normalizeRole(value) {
   const role = String(value || "owner").toLowerCase();
   return ["owner", "admin", "analyst", "viewer"].includes(role) ? role : "viewer";
+}
+
+function denyUnlessAllowed(user, permission) {
+  const permissions = ROLE_PERMISSIONS[user.role] || [];
+
+  if (permissions.includes(permission)) {
+    return null;
+  }
+
+  return {
+    statusCode: 403,
+    body: {
+      error: "Forbidden",
+      message: `Role '${user.role}' is not allowed to perform '${permission}'.`,
+      user,
+      requiredPermission: permission,
+      allowedPermissions: permissions,
+    },
+  };
 }
 
 function normalizeDocId(value) {
