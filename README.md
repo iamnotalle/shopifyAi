@@ -71,6 +71,16 @@ npm run config:link
 
 这个路由会进入内置演示数据模式。
 
+## Public Demo
+
+CloudBase 静态展示版：
+
+```text
+https://tt1-d2gfab46g22e748ed-1435450420.tcloudbaseapp.com/shopify-ai-demo/
+```
+
+这个版本用于作品集分享，内置 36 笔测试订单和 8 个测试商品，支持规则配置、异常预警、趋势图、订单样本、库存风险和 AI 解释演示。
+
 ## 环境变量
 
 复制 `.env.example` 后按自己的环境填写。不要把真实 `.env` 提交到 Git。

@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shopify AI 运营异常预警看板</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17162d;
+        --muted: #66708a;
+        --line: #dde3ed;
+        --soft: #f4f6fa;
+        --panel: #ffffff;
+        --brand: #17162d;
+        --green: #127a5b;
+        --amber: #a45d00;
+        --red: #b42318;
+        --blue: #1f5fbf;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background: #e9ecf2;
+        color: var(--ink);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        margin: 0;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 18rem minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        background: #f8f9fc;
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.25rem;
+        position: sticky;
+        top: 0;
+        height: 100vh;
+      }
+
+      .brand {
+        align-items: center;
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: 2.4rem 1fr;
+      }
+
+      .mark {
+        align-items: center;
+        background: var(--brand);
+        border-radius: 999px;
+        color: white;
+        display: inline-flex;
+        font-weight: 800;
+        height: 2.4rem;
+        justify-content: center;
+        width: 2.4rem;
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 1rem;
+        line-height: 1.2;
+      }
+
+      .brand span,
+      .sideBlock span,
+      .sideLink small {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .sideBlock,
+      .sideLink {
+        background: white;
+        border: 1px solid #edf0f5;
+        border-radius: 0.8rem;
+        display: grid;
+        gap: 0.35rem;
+        padding: 0.85rem;
+      }
+
+      .sideLink {
+        color: var(--ink);
+        text-decoration: none;
+      }
+
+      .sideLink strong {
+        font-size: 0.95rem;
+      }
+
+      .main {
+        display: grid;
+        gap: 1.4rem;
+        padding: 2rem;
+      }
+
+      .hero {
+        align-items: end;
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 4vw, 3.25rem);
+        letter-spacing: 0;
+        line-height: 1;
+        margin: 0;
+      }
+
+      .hero p {
+        color: var(--muted);
+        margin: 0.65rem 0 0;
+        max-width: 58rem;
+      }
+
+      .modePill {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        font-weight: 750;
+        padding: 0.65rem 0.9rem;
+      }
+
+      .ruleStrip,
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .ruleStrip span,
+      .tab {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #4e5a72;
+        font-size: 0.82rem;
+        font-weight: 800;
+        padding: 0.42rem 0.65rem;
+      }
+
+      .tab {
+        cursor: pointer;
+      }
+
+      .tab.active {
+        background: var(--brand);
+        color: white;
+      }
+
+      .grid4 {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .grid2 {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: minmax(0, 1.2fr) minmax(22rem, 0.8fr);
+      }
+
+      .card,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 0.8rem;
+      }
+
+      .card {
+        display: grid;
+        gap: 0.55rem;
+        min-height: 8.4rem;
+        padding: 1rem;
+      }
+
+      .card span,
+      .panelHeader span,
+      th {
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .card strong {
+        font-size: 1.8rem;
+        line-height: 1;
+      }
+
+      .card small {
+        color: var(--muted);
+      }
+
+      .panel {
+        overflow: hidden;
+      }
+
+      .panelHeader {
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem;
+      }
+
+      .panelHeader strong {
+        display: block;
+        font-size: 1.1rem;
+        margin-top: 0.2rem;
+      }
+
+      .panelBody {
+        padding: 1rem;
+      }
+
+      .alerts {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .alert {
+        border: 1px solid var(--line);
+        border-left-width: 0.35rem;
+        border-radius: 0.65rem;
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.85rem;
+      }
+
+      .alert.critical {
+        border-left-color: var(--red);
+      }
+
+      .alert.warning {
+        border-left-color: var(--amber);
+      }
+
+      .alert.info {
+        border-left-color: var(--blue);
+      }
+
+      .alertHead {
+        align-items: center;
+        display: flex;
+        gap: 0.6rem;
+        justify-content: space-between;
+      }
+
+      .severity {
+        border-radius: 999px;
+        color: white;
+        font-size: 0.72rem;
+        font-weight: 850;
+        padding: 0.25rem 0.5rem;
+      }
+
+      .critical .severity {
+        background: var(--red);
+      }
+
+      .warning .severity {
+        background: var(--amber);
+      }
+
+      .info .severity {
+        background: var(--blue);
+      }
+
+      .alert p,
+      .aiBox p {
+        color: #4f5a72;
+        line-height: 1.55;
+        margin: 0;
+      }
+
+      .evidence {
+        background: var(--soft);
+        border-radius: 0.55rem;
+        color: #384158;
+        font-size: 0.9rem;
+        padding: 0.6rem;
+      }
+
+      .btn {
+        background: var(--brand);
+        border: 0;
+        border-radius: 0.55rem;
+        color: white;
+        cursor: pointer;
+        font-weight: 800;
+        padding: 0.58rem 0.75rem;
+      }
+
+      .btn.secondary {
+        background: white;
+        border: 1px solid var(--line);
+        color: var(--ink);
+      }
+
+      .chart {
+        align-items: end;
+        display: grid;
+        gap: 0.45rem;
+        grid-template-columns: repeat(14, minmax(0, 1fr));
+        min-height: 15rem;
+      }
+
+      .barWrap {
+        align-items: center;
+        display: grid;
+        gap: 0.35rem;
+        justify-items: center;
+      }
+
+      .bar {
+        background: #d8dde7;
+        border-radius: 999px 999px 0 0;
+        min-height: 0.25rem;
+        width: 100%;
+      }
+
+      .bar.current {
+        background: var(--brand);
+      }
+
+      .barLabel {
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+
+      td,
+      th {
+        border-bottom: 1px solid #edf0f5;
+        padding: 0.75rem 0.5rem;
+        text-align: left;
+      }
+
+      td {
+        color: #30384e;
+        font-size: 0.92rem;
+      }
+
+      .status {
+        border-radius: 999px;
+        display: inline-flex;
+        font-size: 0.75rem;
+        font-weight: 800;
+        padding: 0.25rem 0.45rem;
+      }
+
+      .status.good {
+        background: #e8f6ef;
+        color: var(--green);
+      }
+
+      .status.warn {
+        background: #fff3df;
+        color: var(--amber);
+      }
+
+      .status.bad {
+        background: #fff0ee;
+        color: var(--red);
+      }
+
+      .rules {
+        display: grid;
+        gap: 0.85rem;
+      }
+
+      .ruleRow {
+        align-items: center;
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: minmax(12rem, 1fr) 1fr 5rem;
+      }
+
+      .ruleRow label {
+        color: #30384e;
+        font-weight: 800;
+      }
+
+      .ruleRow input[type="range"] {
+        width: 100%;
+      }
+
+      .ruleRow input[type="number"] {
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        padding: 0.45rem;
+        width: 100%;
+      }
+
+      .aiBox {
+        background: #f7f8fb;
+        border: 1px solid var(--line);
+        border-radius: 0.7rem;
+        display: grid;
+        gap: 0.5rem;
+        margin-top: 0.65rem;
+        padding: 0.75rem;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          height: auto;
+          position: static;
+        }
+
+        .grid4,
+        .grid2 {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .main {
+          padding: 1rem;
+        }
+
+        .hero,
+        .grid4,
+        .grid2,
+        .ruleRow {
+          grid-template-columns: 1fr;
+        }
+
+        .chart {
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="mark">AI</span>
+          <div>
+            <strong>Shopify AI Ops</strong>
+            <span>独立站异常预警 Demo</span>
+          </div>
+        </div>
+        <div class="sideBlock">
+          <strong>Ulike Dev Demo</strong>
+          <span>36 笔订单 · 8 个商品 · 演示数据</span>
+        </div>
+        <a class="sideLink" href="#dashboard">
+          <strong>运营工作台</strong>
+          <small>今日重点、异常预警、趋势归因</small>
+        </a>
+        <a class="sideLink" href="#rules">
+          <strong>规则配置</strong>
+          <small>阈值会保存到当前浏览器</small>
+        </a>
+        <a class="sideLink" href="#orders">
+          <strong>测试订单</strong>
+          <small>覆盖退款、未付款、履约超时</small>
+        </a>
+      </aside>
+
+      <main class="main" id="dashboard">
+        <section class="hero">
+          <div>
+            <h1>AI 运营异常预警看板</h1>
+            <p>演示数据模拟一个 Shopify 独立站最近 30 天的销售、订单、库存、退款和履约状态。</p>
+            <div class="ruleStrip" id="ruleStrip"></div>
+          </div>
+          <span class="modePill">Public Demo</span>
+        </section>
+
+        <section class="grid4" id="metrics"></section>
+
+        <section class="grid2">
+          <div class="panel">
+            <div class="panelHeader">
+              <div>
+                <span>Alerts</span>
+                <strong>异常预警</strong>
+              </div>
+              <button class="btn secondary" id="resetDemo">重置演示</button>
+            </div>
+            <div class="panelBody alerts" id="alerts"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panelHeader">
+              <div>
+                <span>Attribution</span>
+                <strong>多指标归因</strong>
+              </div>
+            </div>
+            <div class="panelBody" id="attribution"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panelHeader">
+            <div>
+              <span>Trend</span>
+              <strong>最近 14 天销售趋势</strong>
+            </div>
+          </div>
+          <div class="panelBody chart" id="chart"></div>
+        </section>
+
+        <section class="grid2" id="orders">
+          <div class="panel">
+            <div class="panelHeader">
+              <div>
+                <span>Orders</span>
+                <strong>测试订单样本</strong>
+              </div>
+            </div>
+            <div class="panelBody">
+              <table>
+                <thead>
+                  <tr>
+                    <th>订单</th>
+                    <th>商品</th>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>履约</th>
+                  </tr>
+                </thead>
+                <tbody id="ordersTable"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panelHeader">
+              <div>
+                <span>Inventory</span>
+                <strong>库存风险</strong>
+              </div>
+            </div>
+            <div class="panelBody">
+              <table>
+                <thead>
+                  <tr>
+                    <th>商品</th>
+                    <th>库存</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="inventoryTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="rules">
+          <div class="panelHeader">
+            <div>
+              <span>Rules</span>
+              <strong>规则配置</strong>
+            </div>
+            <button class="btn" id="saveRules">保存规则</button>
+          </div>
+          <div class="panelBody rules" id="rulesForm"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const money = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      });
+
+      const defaultRules = {
+        salesDrop: 35,
+        inventoryDays: 5,
+        highValueOrder: 450,
+        fulfillmentHours: 36,
+        refundRate: 12,
+      };
+
+      const ruleMeta = [
+        ["salesDrop", "销售下滑阈值", "%", 10, 80, 5],
+        ["inventoryDays", "库存预警阈值", "件", 1, 30, 1],
+        ["highValueOrder", "高金额订单阈值", "USD", 50, 1000, 50],
+        ["fulfillmentHours", "履约超时阈值", "小时", 6, 96, 6],
+        ["refundRate", "退款率阈值", "%", 2, 40, 2],
+      ];
+
+      const products = [
+        { id: "air10", title: "Ulike Air 10 IPL", inventory: 3, price: 220 },
+        { id: "prestige", title: "Ulike Prestige Pro Bundle", inventory: 2, price: 680 },
+        { id: "reglow", title: "Ulike ReGlow Bundle", inventory: 0, price: 330 },
+        { id: "care", title: "Ulike Care Accessory Kit", inventory: 18, price: 120 },
+        { id: "mini", title: "Ulike Mini Accessory", inventory: 42, price: 55 },
+        { id: "gel", title: "Ulike Cooling Gel Pack", inventory: 5, price: 24 },
+        { id: "pouch", title: "Ulike Travel Pouch", inventory: 0, price: 35 },
+        { id: "warranty", title: "Ulike Warranty Plus", inventory: 999, price: 49 },
+      ];
+
+      const orders = [
+        ["#D2036", 0, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2035", 0, "mini", 55, "PAID", "FULFILLED"],
+        ["#D2034", 1, "reglow", 180, "PAID", "UNFULFILLED"],
+        ["#D2033", 1, "air10", 220, "PAID", "UNFULFILLED"],
+        ["#D2032", 2, "care", 89, "PENDING", "UNFULFILLED"],
+        ["#D2031", 2, "air10", 0, "REFUNDED", "FULFILLED"],
+        ["#D2030", 3, "prestige", 680, "PAID", "UNFULFILLED"],
+        ["#D2029", 3, "mini", 55, "PENDING", "UNFULFILLED"],
+        ["#D2028", 4, "care", 120, "PENDING", "UNFULFILLED"],
+        ["#D2027", 5, "reglow", 0, "REFUNDED", "FULFILLED"],
+        ["#D2026", 6, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2025", 6, "mini", 55, "PENDING", "UNFULFILLED"],
+        ["#D2024", 7, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2023", 7, "prestige", 680, "PAID", "FULFILLED"],
+        ["#D2022", 8, "air10", 440, "PAID", "FULFILLED"],
+        ["#D2021", 8, "reglow", 330, "PAID", "FULFILLED"],
+        ["#D2020", 9, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2019", 9, "prestige", 640, "PAID", "FULFILLED"],
+        ["#D2018", 10, "reglow", 330, "PAID", "FULFILLED"],
+        ["#D2017", 10, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2016", 11, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2015", 11, "care", 120, "PAID", "FULFILLED"],
+        ["#D2014", 12, "prestige", 680, "PAID", "FULFILLED"],
+        ["#D2013", 12, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2012", 13, "reglow", 330, "PAID", "FULFILLED"],
+        ["#D2011", 13, "gel", 72, "PAID", "FULFILLED"],
+        ["#D2010", 16, "air10", 0, "REFUNDED", "FULFILLED"],
+        ["#D2009", 17, "prestige", 680, "PAID", "FULFILLED"],
+        ["#D2008", 18, "pouch", 35, "PENDING", "UNFULFILLED"],
+        ["#D2007", 19, "gel", 96, "PAID", "FULFILLED"],
+        ["#D2006", 20, "care", 120, "PAID", "FULFILLED"],
+        ["#D2005", 21, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2004", 22, "reglow", 0, "VOIDED", "FULFILLED"],
+        ["#D2003", 23, "mini", 55, "PENDING", "UNFULFILLED"],
+        ["#D2002", 24, "air10", 220, "PAID", "FULFILLED"],
+        ["#D2001", 25, "care", 120, "PAID", "FULFILLED"],
+      ].map(([name, daysAgo, productId, amount, financial, fulfillment]) => {
+        const product = products.find((item) => item.id === productId);
+        return { name, daysAgo, product, amount, financial, fulfillment };
+      });
+
+      let rules = JSON.parse(localStorage.getItem("shopify-ai-demo-rules") || "null") || defaultRules;
+
+      function currentWindow() {
+        return orders.filter((order) => order.daysAgo <= 6);
+      }
+
+      function previousWindow() {
+        return orders.filter((order) => order.daysAgo >= 7 && order.daysAgo <= 13);
+      }
+
+      function stats(list) {
+        const revenue = list.reduce((sum, order) => sum + order.amount, 0);
+        return {
+          revenue,
+          orders: list.length,
+          aov: list.length ? revenue / list.length : 0,
+        };
+      }
+
+      function pct(current, previous) {
+        if (!previous) return null;
+        return ((current - previous) / previous) * 100;
+      }
+
+      function buildAlerts() {
+        const current = stats(currentWindow());
+        const previous = stats(previousWindow());
+        const revenueChange = pct(current.revenue, previous.revenue);
+        const orderChange = pct(current.orders, previous.orders);
+        const refundOrders = orders.filter((order) => ["REFUNDED", "VOIDED"].includes(order.financial));
+        const unpaidOrders = orders.filter((order) => !["PAID", "PARTIALLY_PAID", "PARTIALLY_REFUNDED"].includes(order.financial));
+        const staleOrders = orders.filter(
+          (order) =>
+            order.daysAgo * 24 >= rules.fulfillmentHours &&
+            order.amount >= rules.highValueOrder &&
+            ["UNFULFILLED", "ON_HOLD", "IN_PROGRESS"].includes(order.fulfillment),
+        );
+        const lowStock = products.filter((product) => product.inventory <= rules.inventoryDays);
+        const alerts = [];
+
+        if (revenueChange !== null && revenueChange <= -rules.salesDrop) {
+          alerts.push({
+            severity: "critical",
+            title: "销售额大幅下滑",
+            message: `最近 7 天销售额 ${money.format(current.revenue)}，前 7 天为 ${money.format(previous.revenue)}。`,
+            evidence: `销售额变化 ${revenueChange.toFixed(0)}%，订单量变化 ${orderChange.toFixed(0)}%，客单价从 ${money.format(previous.aov)} 变为 ${money.format(current.aov)}。`,
+            action: "检查投放、结账链路、主推商品库存和活动节奏。",
+          });
+        }
+
+        if (orderChange !== null && orderChange <= -rules.salesDrop) {
+          alerts.push({
+            severity: "warning",
+            title: "订单量下滑",
+            message: `最近 7 天 ${current.orders} 单，前 7 天 ${previous.orders} 单。`,
+            evidence: `订单量变化 ${orderChange.toFixed(0)}%，销售额同步下滑，说明问题不只是客单价波动。`,
+            action: "优先排查流量入口、广告预算、支付失败和活动结束影响。",
+          });
+        }
+
+        if (refundOrders.length / orders.length >= rules.refundRate / 100) {
+          alerts.push({
+            severity: "warning",
+            title: "退款率超过阈值",
+            message: `${orders.length} 笔订单里有 ${refundOrders.length} 笔退款或作废。`,
+            evidence: `退款相关订单占比 ${Math.round((refundOrders.length / orders.length) * 100)}%，当前阈值为 ${rules.refundRate}%。`,
+            action: "复盘退款订单商品、客服标签和履约体验。",
+          });
+        }
+
+        if (unpaidOrders.length / orders.length >= 0.25) {
+          alerts.push({
+            severity: "warning",
+            title: "未付款/异常财务状态偏高",
+            message: `${orders.length} 笔订单里有 ${unpaidOrders.length} 笔不是已付款状态。`,
+            evidence: `异常财务状态占比 ${Math.round((unpaidOrders.length / orders.length) * 100)}%。`,
+            action: "检查收款配置、风控拦截和待付款提醒链路。",
+          });
+        }
+
+        if (staleOrders.length) {
+          alerts.push({
+            severity: "warning",
+            title: "高金额订单履约超时",
+            message: `${staleOrders.length} 笔订单超过 ${rules.fulfillmentHours} 小时仍未履约。`,
+            evidence: staleOrders.map((order) => `${order.name} ${money.format(order.amount)}`).join("，"),
+            action: "拉出高金额未履约订单，确认仓库、物流和三方履约应用状态。",
+          });
+        }
+
+        if (lowStock.length) {
+          alerts.push({
+            severity: "info",
+            title: "库存风险",
+            message: `${lowStock.length} 个商品库存小于等于 ${rules.inventoryDays}。`,
+            evidence: lowStock.map((product) => `${product.title} 库存 ${product.inventory}`).join("，"),
+            action: "优先给仍有销量的低库存商品补货或暂停投放。",
+          });
+        }
+
+        return alerts;
+      }
+
+      function render() {
+        const current = stats(currentWindow());
+        const previous = stats(previousWindow());
+        const alerts = buildAlerts();
+        document.getElementById("ruleStrip").innerHTML = ruleMeta
+          .map(([key, label, unit]) => `<span>${label} ${rules[key]}${unit}</span>`)
+          .join("");
+
+        document.getElementById("metrics").innerHTML = [
+          ["销售额", money.format(orders.reduce((sum, order) => sum + order.amount, 0)), "最近 30 天演示订单"],
+          ["订单数", orders.length, "含退款、未付款、履约中状态"],
+          ["客单价", money.format(stats(orders).aov), "按演示订单计算"],
+          ["风险数", alerts.length, "规则命中的异常数量"],
+        ]
+          .map(([label, value, detail]) => `<article class="card"><span>${label}</span><strong>${value}</strong><small>${detail}</small></article>`)
+          .join("");
+
+        document.getElementById("alerts").innerHTML = alerts
+          .map(
+            (alert, index) => `
+              <article class="alert ${alert.severity}">
+                <div class="alertHead">
+                  <strong>${alert.title}</strong>
+                  <span class="severity">${alert.severity}</span>
+                </div>
+                <p>${alert.message}</p>
+                <div class="evidence">${alert.evidence}</div>
+                <button class="btn secondary" onclick="explain(${index})">生成 AI 解释</button>
+                <div class="aiBox hidden" id="ai-${index}"></div>
+              </article>
+            `,
+          )
+          .join("");
+
+        const revenueDelta = pct(current.revenue, previous.revenue);
+        document.getElementById("attribution").innerHTML = `
+          <table>
+            <tbody>
+              <tr><td>销售额变化</td><td>${revenueDelta.toFixed(0)}%</td></tr>
+              <tr><td>订单量变化</td><td>${pct(current.orders, previous.orders).toFixed(0)}%</td></tr>
+              <tr><td>客单价变化</td><td>${pct(current.aov, previous.aov).toFixed(0)}%</td></tr>
+              <tr><td>当前主因</td><td>订单量下滑 + 高客单商品减少</td></tr>
+              <tr><td>重点商品</td><td>Prestige Pro Bundle、ReGlow Bundle</td></tr>
+            </tbody>
+          </table>
+        `;
+
+        const daily = Array.from({ length: 14 }, (_, offset) => {
+          const daysAgo = 13 - offset;
+          const revenue = orders.filter((order) => order.daysAgo === daysAgo).reduce((sum, order) => sum + order.amount, 0);
+          return { daysAgo, revenue };
+        });
+        const maxRevenue = Math.max(...daily.map((item) => item.revenue), 1);
+        document.getElementById("chart").innerHTML = daily
+          .map(
+            (item) => `
+              <div class="barWrap">
+                <div class="bar ${item.daysAgo <= 6 ? "current" : ""}" style="height:${(item.revenue / maxRevenue) * 13 + 0.5}rem"></div>
+                <span class="barLabel">${item.daysAgo === 0 ? "今" : item.daysAgo}</span>
+              </div>
+            `,
+          )
+          .join("");
+
+        document.getElementById("ordersTable").innerHTML = orders
+          .slice(0, 16)
+          .map(
+            (order) => `
+              <tr>
+                <td>${order.name}</td>
+                <td>${order.product.title}</td>
+                <td>${money.format(order.amount)}</td>
+                <td><span class="status ${order.financial === "PAID" ? "good" : "warn"}">${order.financial}</span></td>
+                <td><span class="status ${order.fulfillment === "FULFILLED" ? "good" : "bad"}">${order.fulfillment}</span></td>
+              </tr>
+            `,
+          )
+          .join("");
+
+        document.getElementById("inventoryTable").innerHTML = products
+          .map((product) => {
+            const tone = product.inventory === 0 ? "bad" : product.inventory <= rules.inventoryDays ? "warn" : "good";
+            const text = product.inventory === 0 ? "缺货" : product.inventory <= rules.inventoryDays ? "低库存" : "正常";
+            return `<tr><td>${product.title}</td><td>${product.inventory}</td><td><span class="status ${tone}">${text}</span></td></tr>`;
+          })
+          .join("");
+
+        document.getElementById("rulesForm").innerHTML = ruleMeta
+          .map(
+            ([key, label, unit, min, max, step]) => `
+              <div class="ruleRow">
+                <label for="${key}">${label}</label>
+                <input id="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${rules[key]}" oninput="syncRule('${key}', this.value)" />
+                <input id="${key}-number" type="number" min="${min}" max="${max}" step="${step}" value="${rules[key]}" oninput="syncRule('${key}', this.value)" />
+              </div>
+            `,
+          )
+          .join("");
+
+        window.currentAlerts = alerts;
+      }
+
+      function syncRule(key, value) {
+        rules[key] = Number(value);
+        const range = document.getElementById(key);
+        const number = document.getElementById(`${key}-number`);
+        if (range) range.value = value;
+        if (number) number.value = value;
+      }
+
+      function explain(index) {
+        const alert = window.currentAlerts[index];
+        const box = document.getElementById(`ai-${index}`);
+        box.classList.remove("hidden");
+        box.innerHTML = `
+          <strong>AI 解释</strong>
+          <p>${alert.title}值得关注，因为它同时命中了规则阈值和业务证据：${alert.evidence}</p>
+          <p>最可能原因：${alert.title.includes("库存") ? "热卖商品库存不足会限制后续销售。" : "销售、订单、履约或退款指标出现联动异常，需要运营复核。"}</p>
+          <p>建议动作：${alert.action}</p>
+        `;
+      }
+
+      document.getElementById("saveRules").addEventListener("click", () => {
+        localStorage.setItem("shopify-ai-demo-rules", JSON.stringify(rules));
+        render();
+      });
+
+      document.getElementById("resetDemo").addEventListener("click", () => {
+        localStorage.removeItem("shopify-ai-demo-rules");
+        rules = { ...defaultRules };
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>

@@ -727,89 +727,336 @@ function buildDemoAnalyticsData(
 }
 
 function buildDemoOrders(): OrderNode[] {
-  const seedOrders = [
-    {
-      name: "#D1001",
-      daysAgo: 9,
+  const productCatalog = {
+    air10: {
       title: "Ulike Air 10 IPL",
+      productId: "gid://shopify/Product/demo-air-10",
+      variantId: "gid://shopify/ProductVariant/demo-air-10-default",
+      sku: "DEMO-AIR10",
+    },
+    reglow: {
+      title: "Ulike ReGlow Bundle",
+      productId: "gid://shopify/Product/demo-reglow-bundle",
+      variantId: "gid://shopify/ProductVariant/demo-reglow-bundle-default",
+      sku: "DEMO-REGLOW",
+    },
+    prestige: {
+      title: "Ulike Prestige Pro Bundle",
+      productId: "gid://shopify/Product/demo-prestige-pro",
+      variantId: "gid://shopify/ProductVariant/demo-prestige-pro-default",
+      sku: "DEMO-PRESTIGE",
+    },
+    careKit: {
+      title: "Ulike Care Accessory Kit",
+      productId: "gid://shopify/Product/demo-care-kit",
+      variantId: "gid://shopify/ProductVariant/demo-care-kit-default",
+      sku: "DEMO-CARE",
+    },
+    mini: {
+      title: "Ulike Mini Accessory",
+      productId: "gid://shopify/Product/demo-mini-accessory",
+      variantId: "gid://shopify/ProductVariant/demo-mini-accessory-default",
+      sku: "DEMO-MINI",
+    },
+    coolingGel: {
+      title: "Ulike Cooling Gel Pack",
+      productId: "gid://shopify/Product/demo-cooling-gel",
+      variantId: "gid://shopify/ProductVariant/demo-cooling-gel-default",
+      sku: "DEMO-GEL",
+    },
+    pouch: {
+      title: "Ulike Travel Pouch",
+      productId: "gid://shopify/Product/demo-travel-pouch",
+      variantId: "gid://shopify/ProductVariant/demo-travel-pouch-default",
+      sku: "DEMO-POUCH",
+    },
+  };
+  type DemoProductKey = keyof typeof productCatalog;
+  type DemoOrderSeed = {
+    name: string;
+    daysAgo: number;
+    productKey: DemoProductKey;
+    amount: number;
+    fulfillmentStatus: string;
+    financialStatus?: string;
+    quantity?: number;
+    hour?: number;
+  };
+  const seedOrders: DemoOrderSeed[] = [
+    {
+      name: "#D2030",
+      daysAgo: 0,
+      productKey: "air10",
       amount: 220,
       fulfillmentStatus: "FULFILLED",
     },
     {
-      name: "#D1002",
-      daysAgo: 9,
-      title: "Ulike Air 10 IPL",
+      name: "#D2029",
+      daysAgo: 0,
+      productKey: "mini",
+      amount: 55,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2028",
+      daysAgo: 1,
+      productKey: "reglow",
       amount: 180,
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2027",
+      daysAgo: 1,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2026",
+      daysAgo: 2,
+      productKey: "careKit",
+      amount: 89,
+      financialStatus: "PENDING",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2025",
+      daysAgo: 2,
+      productKey: "air10",
+      amount: 0,
+      financialStatus: "REFUNDED",
       fulfillmentStatus: "FULFILLED",
     },
     {
-      name: "#D1003",
+      name: "#D2024",
+      daysAgo: 3,
+      productKey: "prestige",
+      amount: 680,
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2023",
+      daysAgo: 3,
+      productKey: "mini",
+      amount: 55,
+      financialStatus: "PENDING",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2022",
+      daysAgo: 4,
+      productKey: "careKit",
+      amount: 120,
+      financialStatus: "PENDING",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2021",
+      daysAgo: 5,
+      productKey: "reglow",
+      amount: 0,
+      financialStatus: "REFUNDED",
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2020",
+      daysAgo: 6,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2019",
+      daysAgo: 6,
+      productKey: "mini",
+      amount: 55,
+      financialStatus: "PENDING",
+      fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2018",
+      daysAgo: 7,
+      productKey: "air10",
+      amount: 220,
+      quantity: 1,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2017",
+      daysAgo: 7,
+      productKey: "prestige",
+      amount: 680,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2016",
+      daysAgo: 8,
+      productKey: "air10",
+      amount: 440,
+      quantity: 2,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2015",
+      daysAgo: 8,
+      productKey: "reglow",
+      amount: 330,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2014",
+      daysAgo: 9,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2013",
+      daysAgo: 9,
+      productKey: "prestige",
+      amount: 640,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2012",
       daysAgo: 10,
-      title: "Ulike ReGlow Bundle",
-      amount: 160,
+      productKey: "reglow",
+      amount: 330,
       fulfillmentStatus: "FULFILLED",
     },
     {
-      name: "#D1004",
+      name: "#D2011",
+      daysAgo: 10,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2010",
       daysAgo: 11,
-      title: "Ulike Care Accessory Kit",
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2009",
+      daysAgo: 11,
+      productKey: "careKit",
       amount: 120,
       fulfillmentStatus: "FULFILLED",
     },
     {
-      name: "#D1005",
-      daysAgo: 1,
-      title: "Ulike Mini Accessory",
-      amount: 50,
+      name: "#D2008",
+      daysAgo: 12,
+      productKey: "prestige",
+      amount: 680,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2007",
+      daysAgo: 12,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2006",
+      daysAgo: 13,
+      productKey: "reglow",
+      amount: 330,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2005",
+      daysAgo: 13,
+      productKey: "coolingGel",
+      amount: 72,
+      quantity: 3,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2004",
+      daysAgo: 16,
+      productKey: "air10",
+      amount: 0,
+      financialStatus: "REFUNDED",
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2003",
+      daysAgo: 18,
+      productKey: "pouch",
+      amount: 35,
+      financialStatus: "PENDING",
       fulfillmentStatus: "UNFULFILLED",
+    },
+    {
+      name: "#D2002",
+      daysAgo: 22,
+      productKey: "careKit",
+      amount: 120,
+      fulfillmentStatus: "FULFILLED",
+    },
+    {
+      name: "#D2001",
+      daysAgo: 25,
+      productKey: "air10",
+      amount: 220,
+      fulfillmentStatus: "FULFILLED",
     },
   ];
 
-  return seedOrders.map((order, index) => {
-    const processedAt = getDemoDate(order.daysAgo);
+  return seedOrders
+    .map((order, index) => {
+      const processedAt = getDemoDate(order.daysAgo, order.hour);
+      const product = productCatalog[order.productKey];
 
-    return {
-      id: `gid://shopify/Order/demo-${index + 1}`,
-      name: order.name,
-      createdAt: processedAt,
-      processedAt,
-      cancelledAt: null,
-      displayFinancialStatus: "PAID",
-      displayFulfillmentStatus: order.fulfillmentStatus,
-      currentTotalPriceSet: {
-        shopMoney: {
-          amount: order.amount.toFixed(2),
-          currencyCode: "USD",
+      return {
+        id: `gid://shopify/Order/demo-${index + 1}`,
+        name: order.name,
+        createdAt: processedAt,
+        processedAt,
+        cancelledAt: null,
+        displayFinancialStatus: order.financialStatus || "PAID",
+        displayFulfillmentStatus: order.fulfillmentStatus,
+        currentTotalPriceSet: {
+          shopMoney: {
+            amount: order.amount.toFixed(2),
+            currencyCode: "USD",
+          },
         },
-      },
-      lineItems: {
-        edges: [
-          {
-            node: {
-              id: `gid://shopify/LineItem/demo-${index + 1}`,
-              title: order.title,
-              quantity: 1,
-              discountedTotalSet: {
-                shopMoney: {
-                  amount: order.amount.toFixed(2),
-                  currencyCode: "USD",
+        lineItems: {
+          edges: [
+            {
+              node: {
+                id: `gid://shopify/LineItem/demo-${index + 1}`,
+                title: product.title,
+                quantity: order.quantity || 1,
+                discountedTotalSet: {
+                  shopMoney: {
+                    amount: order.amount.toFixed(2),
+                    currencyCode: "USD",
+                  },
+                },
+                product: {
+                  id: product.productId,
+                  title: product.title,
+                },
+                variant: {
+                  id: product.variantId,
+                  title: "Default",
+                  sku: product.sku,
                 },
               },
-              product: {
-                id: `gid://shopify/Product/demo-${index + 1}`,
-                title: order.title,
-              },
-              variant: {
-                id: `gid://shopify/ProductVariant/demo-${index + 1}`,
-                title: "Default",
-                sku: `DEMO-${index + 1}`,
-              },
             },
-          },
-        ],
-      },
-    };
-  });
+          ],
+        },
+      };
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 }
 
 function buildDemoProducts(): ProductNode[] {
@@ -822,10 +1069,16 @@ function buildDemoProducts(): ProductNode[] {
       maxPrice: "220.00",
     },
     {
+      title: "Ulike Prestige Pro Bundle",
+      inventory: 2,
+      minPrice: "640.00",
+      maxPrice: "680.00",
+    },
+    {
       title: "Ulike ReGlow Bundle",
       inventory: 0,
       minPrice: "160.00",
-      maxPrice: "160.00",
+      maxPrice: "330.00",
     },
     {
       title: "Ulike Care Accessory Kit",
@@ -838,6 +1091,24 @@ function buildDemoProducts(): ProductNode[] {
       inventory: 42,
       minPrice: "50.00",
       maxPrice: "50.00",
+    },
+    {
+      title: "Ulike Cooling Gel Pack",
+      inventory: 5,
+      minPrice: "24.00",
+      maxPrice: "24.00",
+    },
+    {
+      title: "Ulike Travel Pouch",
+      inventory: 0,
+      minPrice: "35.00",
+      maxPrice: "35.00",
+    },
+    {
+      title: "Ulike Warranty Plus",
+      inventory: 999,
+      minPrice: "29.00",
+      maxPrice: "59.00",
     },
   ];
 
@@ -862,10 +1133,10 @@ function buildDemoProducts(): ProductNode[] {
   }));
 }
 
-function getDemoDate(daysAgo: number) {
+function getDemoDate(daysAgo: number, hour = 10) {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
-  date.setHours(10, 0, 0, 0);
+  date.setHours(hour, 0, 0, 0);
 
   return date.toISOString();
 }

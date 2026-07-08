@@ -1,0 +1,8 @@
+{
+  "version": "2.0",
+  "envId": "tt1-d2gfab46g22e748ed",
+  "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json",
+  "cloudrun": {
+    "name": "shopify-ai-ops-dashboard"
+  }
+}
